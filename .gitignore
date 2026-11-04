@@ -1,0 +1,6 @@
+node_modules/
+dist/
+.oil-ui/
+.trae-html-share-packages/
+*.log
+.DS_Store

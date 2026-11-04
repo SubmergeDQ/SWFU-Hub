@@ -1,0 +1,8 @@
+{
+  "appId": "cn.swfu.electricity",
+  "appName": "宿舍电量",
+  "webDir": "dist",
+  "android": {
+    "allowMixedContent": true
+  }
+}
