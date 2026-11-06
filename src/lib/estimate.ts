@@ -19,6 +19,8 @@ export interface Estimate {
   dailyRecent: number;
   /** 近 30 天日均，用来做长期对照 */
   daily30: number;
+  /** 今日已用电量，接口当天还没生成记录时为 null */
+  todayUsage: number | null;
   daysLeft: number;
   endDate: Date;
   history: CurvePoint[];
@@ -65,6 +67,11 @@ export function estimateUsage(
 
   const dailyRecent = average(complete.slice(-windowDays));
   const daily30 = average(complete);
+  // 当日用量取接口里 endtime 等于今天的记录，没有就留空，避免拿昨天当今天
+  const todayRecord = rawDaily.find(
+    (item) => item.endtime && item.endtime.slice(0, 10) === todayKey,
+  );
+  const todayUsage = todayRecord ? Number(todayRecord.total) || 0 : null;
   const daily = dailyRecent > 0 ? dailyRecent : daily30;
   const daysLeft = daily > 0 ? balance / daily : Number.POSITIVE_INFINITY;
   const endDate = shiftDays(now, Math.round(daysLeft));
@@ -103,6 +110,7 @@ export function estimateUsage(
     averageWindow: windowDays,
     dailyRecent,
     daily30,
+    todayUsage,
     daysLeft,
     endDate,
     history,

@@ -61,7 +61,6 @@ export function Home() {
   const days = Number.isFinite(estimate.daysLeft) ? Math.round(estimate.daysLeft) : null;
   const lowBalance = days != null && days <= 7;
   const closed = status?.zhuangtai === '合闸';
-  const windowLabel = estimate.averageWindow === 1 ? '昨日' : `近 ${estimate.averageWindow} 日均`;
   const syncLabel = updatedAt
     ? `${String(updatedAt.getHours()).padStart(2, '0')}:${String(updatedAt.getMinutes()).padStart(2, '0')} 同步`
     : '同步中';
@@ -146,8 +145,8 @@ export function Home() {
 
       <section className="stats">
         <div className="stat">
-          <b>{estimate.dailyRecent.toFixed(2)}</b>
-          <span>{windowLabel} · 度</span>
+          <b>{estimate.todayUsage != null ? estimate.todayUsage.toFixed(2) : '—'}</b>
+          <span>当日用量 · 度</span>
         </div>
         <div className="stat">
           <b>{estimate.daily30.toFixed(2)}</b>
