@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useState, type ReactNode } from 'react';
 import { clearAccount, loadAccount, saveAccount, type Account } from './account';
 
 interface AccountContextValue {
@@ -14,23 +14,26 @@ const AccountContext = createContext<AccountContextValue | null>(null);
 export function AccountProvider({ children }: { children: ReactNode }) {
   const [account, setAccountState] = useState<Account | null>(() => loadAccount());
 
-  const setAccount = (next: Account) => {
+  const setAccount = useCallback((next: Account) => {
     saveAccount(next);
     setAccountState(next);
-  };
+  }, []);
 
   // 扁平字段与 meters 里的当前项保持一致，其余页面无需感知多户号结构
-  const switchMeter = (meterId: string) => {
-    if (!account || account.meterId === meterId) return;
-    const target = account.meters.find((meter) => meter.meterId === meterId);
-    if (!target) return;
-    setAccount({ ...account, ...target });
-  };
+  const switchMeter = useCallback(
+    (meterId: string) => {
+      if (!account || account.meterId === meterId) return;
+      const target = account.meters.find((meter) => meter.meterId === meterId);
+      if (!target) return;
+      setAccount({ ...account, ...target });
+    },
+    [account, setAccount],
+  );
 
-  const signOut = () => {
+  const signOut = useCallback(() => {
     clearAccount();
     setAccountState(null);
-  };
+  }, []);
 
   return (
     <AccountContext.Provider value={{ account, setAccount, switchMeter, signOut }}>

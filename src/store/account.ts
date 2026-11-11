@@ -71,6 +71,26 @@ export function clearAccount(): void {
   localStorage.removeItem(STORAGE_KEY);
 }
 
+/** 比较两组绑定是否一致，接口顺序变化不算改动 */
+export function sameMeters(left: MeterBinding[], right: MeterBinding[]): boolean {
+  if (left.length !== right.length) return false;
+  const sortById = (list: MeterBinding[]) =>
+    [...list].sort((a, b) => a.meterId.localeCompare(b.meterId));
+  const sortedLeft = sortById(left);
+  const sortedRight = sortById(right);
+
+  return sortedLeft.every((meter, index) => {
+    const other = sortedRight[index];
+    return (
+      meter.meterId === other.meterId &&
+      meter.userCode === other.userCode &&
+      meter.meterNo === other.meterNo &&
+      meter.address === other.address &&
+      meter.typeRemark === other.typeRemark
+    );
+  });
+}
+
 /** 用绑定列表和选中的户号生成可持久化账号，未指定时默认第一间 */
 export function buildAccount(linked: LinkedAccount, meterId?: string): Account {
   const active = linked.meters.find((meter) => meter.meterId === meterId) ?? linked.meters[0];

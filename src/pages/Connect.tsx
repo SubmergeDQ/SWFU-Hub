@@ -128,7 +128,7 @@ export function Connect() {
       <label className="field">
         <span>公众号链接或 openId</span>
         <textarea
-          rows={4}
+          rows={3}
           value={input}
           placeholder="粘贴形如 http://sdcz.swfu.edu.cn/refund/index.html#/?openId=… 的链接"
           onChange={(event) => setInput(event.target.value)}

@@ -19,13 +19,8 @@ async function unwrap<T>(request: Promise<ApiEnvelope<T>>, fallback: string): Pr
   return response.data;
 }
 
-/** 用 openId 换微信身份、再取出该微信号绑定的全部电表 */
-export async function connectAccount(input: string): Promise<LinkedAccount> {
-  const openId = parseOpenId(input);
-  if (!openId) {
-    throw new Error('没有识别到 openId，请粘贴公众号里的整段链接');
-  }
-
+/** 用已有的 openId 重新拉取微信身份和绑定列表，供刷新时同步账号 */
+export async function fetchLinkedAccount(openId: string): Promise<LinkedAccount> {
   const user = await unwrap(
     postForm<ApiEnvelope<WechatUser>>('/kddz/electricmeterpost/index', { openId }),
     '读取微信身份失败',
@@ -59,6 +54,15 @@ export async function connectAccount(input: string): Promise<LinkedAccount> {
     avatar: user.wechatUserHeadimgurl || '',
     meters,
   };
+}
+
+/** 从公众号链接解析 openId，再拉取微信身份和绑定列表 */
+export async function connectAccount(input: string): Promise<LinkedAccount> {
+  const openId = parseOpenId(input);
+  if (!openId) {
+    throw new Error('没有识别到 openId，请粘贴公众号里的整段链接');
+  }
+  return fetchLinkedAccount(openId);
 }
 
 /** 实时剩余电量、电价与电表状态 */

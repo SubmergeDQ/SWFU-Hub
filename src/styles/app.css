@@ -26,6 +26,23 @@
 
 html {
   -webkit-text-size-adjust: 100%;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(26, 107, 88, 0.32) transparent;
+}
+
+/* 页面与内部滚动容器统一使用细滚动条 */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(26, 107, 88, 0.32);
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 body {
@@ -92,6 +109,12 @@ button {
   min-height: calc(100dvh - 78px);
   max-height: calc(100dvh - 78px);
   overflow-y: auto;
+}
+
+/* 内容变高时按钮不参与压缩，宽度始终和上方面板一致 */
+.page-settings .ghost-btn-wide {
+  flex: none;
+  width: 100%;
 }
 
 .page-settings .profile {
@@ -1158,13 +1181,15 @@ button {
 /* ============ 连接账号 ============ */
 .connect {
   min-height: 100dvh;
+  padding-top: calc(env(safe-area-inset-top) + 18px);
+  padding-bottom: 16px;
 }
 
 .connect-mark {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 40px;
+  margin-top: 4px;
 }
 
 .connect-dot {
@@ -1181,26 +1206,26 @@ button {
 }
 
 .connect-title {
-  margin: 26px 0 0;
+  margin: 16px 0 0;
   font-family: var(--serif);
-  font-size: 40px;
+  font-size: 36px;
   font-weight: 600;
-  line-height: 1.2;
+  line-height: 1.15;
   letter-spacing: -0.01em;
 }
 
 .connect-sub {
-  margin-top: 14px;
+  margin-top: 11px;
   font-size: 13px;
-  line-height: 1.8;
+  line-height: 1.7;
   color: var(--muted);
 }
 
 .steps {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  margin: 30px 0 0;
+  gap: clamp(9px, 1.5vh, 14px);
+  margin: clamp(18px, 2.8vh, 28px) 0 0;
   padding: 0;
   list-style: none;
 }
@@ -1208,52 +1233,66 @@ button {
 .steps li {
   display: flex;
   align-items: flex-start;
-  gap: 12px;
+  gap: 10px;
   font-size: 12px;
-  line-height: 1.7;
+  line-height: 1.58;
   color: var(--muted);
 }
 
 .steps li span {
   flex: none;
-  width: 20px;
-  height: 20px;
+  width: 19px;
+  height: 19px;
   display: grid;
   place-items: center;
   border: 1px solid var(--line);
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.6);
   font-family: var(--num);
-  font-size: 10px;
+  font-size: 9.5px;
   color: var(--green);
 }
 
 .field {
   display: block;
-  margin-top: 28px;
+  margin-top: 14px;
 }
 
 .field > span {
   display: block;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
   font-size: 11px;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.12em;
   color: var(--faint);
 }
 
 .field textarea {
   width: 100%;
-  padding: 14px;
+  padding: 12px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.75);
   font-size: 12px;
-  line-height: 1.7;
+  line-height: 1.6;
   color: var(--ink);
   outline: none;
   resize: none;
   word-break: break-all;
   transition: border-color 0.16s ease;
+}
+
+/* 输入框固定留约 3 行多的高度，剩余空间交给段落间距，避免被拉得过高 */
+.connect .field {
+  display: flex;
+  flex-direction: column;
+  flex: none;
+  margin-top: clamp(15px, 2.3vh, 25px);
+}
+
+.connect .field textarea {
+  flex: none;
+  height: 112px;
+  min-height: 112px;
 }
 
 .field textarea:focus {
@@ -1272,13 +1311,25 @@ button {
 }
 
 .connect-note {
-  margin-top: 16px;
-  padding: 12px 14px;
+  margin-top: clamp(11px, 1.9vh, 17px);
+  padding: 11px 13px;
   border-radius: 8px;
   background: rgba(26, 107, 88, 0.06);
   font-size: 12px;
-  line-height: 1.75;
+  line-height: 1.62;
   color: var(--muted);
+}
+
+.connect .primary-btn {
+  flex: none;
+  margin-top: clamp(13px, 1.9vh, 21px);
+}
+
+.connect .fineprint {
+  flex: none;
+  margin-top: clamp(10px, 1.5vh, 16px);
+  font-size: 11.5px;
+  line-height: 1.58;
 }
 
 .meter-picker {

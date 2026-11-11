@@ -1,8 +1,22 @@
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
-import { fetchDailyUsage, fetchMeterStatus, fetchMonthlyUsage } from '../api/electricity';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
+import {
+  fetchDailyUsage,
+  fetchLinkedAccount,
+  fetchMeterStatus,
+  fetchMonthlyUsage,
+} from '../api/electricity';
 import type { DailyUsage, MeterStatus, MonthUsage } from '../api/types';
 import { toDateString } from '../lib/date';
 import { findTodayTotal } from '../lib/estimate';
+import { sameMeters, type Account } from './account';
 import { useAccount } from './AccountContext';
 
 const CACHE_KEY = 'swfu.electricity.meter.v1';
@@ -106,7 +120,7 @@ function todayZeroLeijiOf(
  * 进入明细页时不会再因为补数据把下方内容顶动。
  */
 export function MeterProvider({ children }: { children: ReactNode }) {
-  const { account } = useAccount();
+  const { account, setAccount } = useAccount();
   const [status, setStatus] = useState<MeterStatus | null>(null);
   const [daily, setDaily] = useState<DailyUsage[]>([]);
   const [monthly, setMonthly] = useState<MonthUsage[]>([]);
@@ -115,22 +129,62 @@ export function MeterProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
 
+  // reload 稳定复用，避免同步账号信息时因为整个 account 对象变化而反复触发
+  const accountRef = useRef(account);
+  accountRef.current = account;
+  const setAccountRef = useRef(setAccount);
+  setAccountRef.current = setAccount;
+
+  const openId = account?.openId;
+  const wechatId = account?.wechatId;
+  const activeMeterId = account?.meterId;
+
   const reload = useCallback(async (): Promise<boolean> => {
-    if (!account) return false;
+    const current = accountRef.current;
+    if (!current) return false;
     setLoading(true);
     setError(null);
     try {
+      // 先同步公众号侧的最新绑定，新增/解绑的户号和昵称头像都会一起更新
+      let effective = current;
+      try {
+        const linked = await fetchLinkedAccount(current.openId);
+        const active =
+          linked.meters.find((meter) => meter.meterId === current.meterId) ?? linked.meters[0];
+        const next: Account = {
+          openId: current.openId,
+          wechatId: linked.wechatId,
+          nickname: linked.nickname,
+          avatar: linked.avatar,
+          ...active,
+          meters: linked.meters,
+        };
+        const changed =
+          next.meterId !== current.meterId ||
+          next.wechatId !== current.wechatId ||
+          next.nickname !== current.nickname ||
+          next.avatar !== current.avatar ||
+          !sameMeters(current.meters, linked.meters);
+
+        if (changed) {
+          setAccountRef.current(next);
+          effective = next;
+        }
+      } catch {
+        // 绑定接口偶发失败时保留本地绑定，电表数据继续刷新
+      }
+
       const [nextStatus, nextDaily, nextMonthly] = await Promise.all([
-        fetchMeterStatus(account),
-        fetchDailyUsage(account.meterId, 30),
-        fetchMonthlyUsage(account.meterId, 6),
+        fetchMeterStatus(effective),
+        fetchDailyUsage(effective.meterId, 30),
+        fetchMonthlyUsage(effective.meterId, 6),
       ]);
       setStatus(nextStatus);
       setDaily(nextDaily);
       setMonthly(nextMonthly);
       setTodayZeroLeiji(
         todayZeroLeijiOf(
-          account.meterId,
+          effective.meterId,
           Number(nextStatus.leiji),
           findTodayTotal(nextDaily),
         ),
@@ -138,7 +192,7 @@ export function MeterProvider({ children }: { children: ReactNode }) {
       const savedAt = Date.now();
       setUpdatedAt(new Date(savedAt));
       writeCache({
-        meterId: account.meterId,
+        meterId: effective.meterId,
         status: nextStatus,
         daily: nextDaily,
         monthly: nextMonthly,
@@ -151,18 +205,18 @@ export function MeterProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoading(false);
     }
-  }, [account]);
+  }, [openId, wechatId, activeMeterId]);
 
-  // 换账号时先用该电表的缓存顶上，避免白屏
+  // 只跟随户号切换；昵称、头像或绑定列表更新时不清空当前电表数据
   useEffect(() => {
-    if (!account) {
+    if (!activeMeterId) {
       setStatus(null);
       setDaily([]);
       setMonthly([]);
       setTodayZeroLeiji(null);
       return;
     }
-    const cached = readCache(account.meterId);
+    const cached = readCache(activeMeterId);
     // 切换户号时缓存可能不匹配，先清空，避免短暂显示上一间宿舍的数据
     setStatus(cached?.status ?? null);
     setDaily(cached?.daily ?? []);
@@ -175,13 +229,13 @@ export function MeterProvider({ children }: { children: ReactNode }) {
     setTodayZeroLeiji(
       savedToday && cached
         ? todayZeroLeijiOf(
-            account.meterId,
+            activeMeterId,
             Number(cached.status.leiji),
             findTodayTotal(cached.daily),
           )
         : null,
     );
-  }, [account]);
+  }, [activeMeterId]);
 
   useEffect(() => {
     void reload();
