@@ -23,6 +23,26 @@ export function parseDayString(value: string): Date {
   return new Date(year, month - 1, day);
 }
 
+/** 把接口日期统一成 2026-11-04，兼容 2026/11/4 与带时间的写法 */
+export function normalizeDayString(value: string): string | null {
+  const matched = value.match(/(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+  if (!matched) return null;
+  return `${matched[1]}-${pad2(Number(matched[2]))}-${pad2(Number(matched[3]))}`;
+}
+
+/**
+ * 每日用电记录实际统计的日期。
+ * 接口用 endtime 标记区间结束，若结束在零点，这条记录统计的是前一天，
+ * 不能因为日期是今天就当成今天的用量。
+ */
+export function usageDayOf(endtime: string): Date | null {
+  const day = normalizeDayString(endtime);
+  if (!day) return null;
+  const time = endtime.match(/(\d{1,2}):(\d{1,2})/);
+  const endsAtMidnight = time ? Number(time[1]) === 0 && Number(time[2]) === 0 : false;
+  return endsAtMidnight ? shiftDays(parseDayString(day), -1) : parseDayString(day);
+}
+
 /** 11/04 */
 export function shortDate(date: Date): string {
   return `${pad2(date.getMonth() + 1)}/${pad2(date.getDate())}`;

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useMeter } from '../store/MeterContext';
-import { parseDayString, shortDate, toDateString, weekdayLabel } from '../lib/date';
+import { shortDate, toDateString, usageDayOf, weekdayLabel } from '../lib/date';
 import { useAccount } from '../store/AccountContext';
 
 type Period = 7 | 30;
@@ -19,15 +19,16 @@ export function Usage() {
   const { daily, monthly, loading, error, reload } = useMeter();
   const [period, setPeriod] = useState<Period>(30);
 
-  // 今天的数据还没走完，各类统计都排除掉
+  // 今天的数据还没走完，各类统计都排除掉；零点结束的记录归到前一天
   const complete = useMemo(() => {
     const today = toDateString(new Date());
-    return daily
-      .filter((item) => item.endtime && item.endtime < today)
-      .map((item) => ({
-        date: parseDayString(item.endtime),
-        total: Number(item.total) || 0,
-      }));
+    const items: { date: Date; total: number }[] = [];
+    for (const item of daily) {
+      const day = item.endtime ? usageDayOf(item.endtime) : null;
+      if (!day || toDateString(day) >= today) continue;
+      items.push({ date: day, total: Number(item.total) || 0 });
+    }
+    return items;
   }, [daily]);
 
   const visible = useMemo(
