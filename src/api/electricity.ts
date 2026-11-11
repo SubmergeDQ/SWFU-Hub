@@ -8,8 +8,7 @@ import type {
   MonthUsage,
   WechatUser,
 } from './types';
-import type { Account } from '../store/account';
-import { parseOpenId } from '../store/account';
+import { parseOpenId, type Account, type LinkedAccount } from '../store/account';
 import { shiftDays, toDateString } from '../lib/date';
 
 async function unwrap<T>(request: Promise<ApiEnvelope<T>>, fallback: string): Promise<T> {
@@ -20,8 +19,8 @@ async function unwrap<T>(request: Promise<ApiEnvelope<T>>, fallback: string): Pr
   return response.data;
 }
 
-/** 用 openId 换微信身份、再换绑定的电表，生成可持久化的账号 */
-export async function connectAccount(input: string): Promise<Account> {
+/** 用 openId 换微信身份、再取出该微信号绑定的全部电表 */
+export async function connectAccount(input: string): Promise<LinkedAccount> {
   const openId = parseOpenId(input);
   if (!openId) {
     throw new Error('没有识别到 openId，请粘贴公众号里的整段链接');
@@ -39,21 +38,26 @@ export async function connectAccount(input: string): Promise<Account> {
     '读取绑定电表失败',
   );
 
-  const bind = binds?.[0];
-  if (!bind) {
+  const meters = (binds || [])
+    .filter((bind) => Boolean(bind && bind.bindMeterId))
+    .map((bind) => ({
+      meterId: bind.bindMeterId,
+      userCode: bind.userCode,
+      meterNo: bind.elemeterAddress || '',
+      address: bind.userAddress || '',
+      typeRemark: bind.elemeterTypeRemark || '',
+    }));
+
+  if (!meters.length) {
     throw new Error('这个微信号还没有绑定电表，请先在公众号里完成绑定');
   }
 
   return {
     openId,
     wechatId: user.wechatId,
-    meterId: bind.bindMeterId,
-    userCode: bind.userCode,
-    meterNo: bind.elemeterAddress || '',
-    address: bind.userAddress || '',
-    typeRemark: bind.elemeterTypeRemark || '',
     nickname: user.wechatUserNickname || '',
     avatar: user.wechatUserHeadimgurl || '',
+    meters,
   };
 }
 

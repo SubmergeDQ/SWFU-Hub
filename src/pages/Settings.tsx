@@ -8,15 +8,17 @@ import { describeRoom } from '../lib/room';
 const WINDOW_PRESETS = [1, 3, 5, 7, 15];
 
 export function Settings() {
-  const { account, signOut } = useAccount();
+  const { account, signOut, switchMeter } = useAccount();
   const navigate = useNavigate();
   const { status } = useMeter();
   const { averageWindow, setAverageWindow } = useSettings();
   const [draft, setDraft] = useState('');
+  const [meterMenuOpen, setMeterMenuOpen] = useState(false);
 
   if (!account) return null;
 
   const room = describeRoom(account.userCode);
+  const multipleMeters = account.meters.length > 1;
 
   const handleSignOut = () => {
     signOut();
@@ -55,10 +57,53 @@ export function Settings() {
       </section>
 
       <section className="panel">
-        <div className="kv">
+        <button
+          type="button"
+          className={`kv kv-select ${meterMenuOpen ? 'is-open' : ''}`}
+          onClick={multipleMeters ? () => setMeterMenuOpen((open) => !open) : undefined}
+          disabled={!multipleMeters}
+        >
           <span>户号</span>
-          <b>{account.userCode}</b>
-        </div>
+          <b>
+            {account.userCode}
+            {multipleMeters ? (
+              <svg className="kv-chevron" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+                <path d="M6 9l6 6 6-6" />
+              </svg>
+            ) : null}
+          </b>
+        </button>
+
+        {multipleMeters && meterMenuOpen ? (
+          <div className="meter-menu">
+            {account.meters.map((meter) => {
+              const meterRoom = describeRoom(meter.userCode);
+              const active = meter.meterId === account.meterId;
+              return (
+                <button
+                  key={meter.meterId}
+                  type="button"
+                  className={`meter-menu-item ${active ? 'is-on' : ''}`}
+                  onClick={() => {
+                    switchMeter(meter.meterId);
+                    setMeterMenuOpen(false);
+                  }}
+                >
+                  <span className="meter-menu-main">
+                    <b>{meterRoom ? meterRoom.text : meter.address || '宿舍'}</b>
+                    <span>{meter.userCode}</span>
+                  </span>
+                  {active ? (
+                    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                      <path d="M5 12.5l4.5 4.5L19 7.5" />
+                    </svg>
+                  ) : null}
+                </button>
+              );
+            })}
+          </div>
+        ) : null}
+
         <div className="kv">
           <span>宿舍</span>
           <b>{room ? room.text : '—'}</b>

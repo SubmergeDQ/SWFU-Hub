@@ -87,11 +87,11 @@ button {
   overflow: hidden;
 }
 
-/* 我的页压缩到一屏 */
+/* 我的页默认一屏，展开户号下拉时允许内部滚动 */
 .page-settings {
   min-height: calc(100dvh - 78px);
   max-height: calc(100dvh - 78px);
-  overflow: hidden;
+  overflow-y: auto;
 }
 
 .page-settings .profile {
@@ -1008,6 +1008,90 @@ button {
   word-break: break-all;
 }
 
+/* 户号可切换时整行就是下拉触发器 */
+.kv-select {
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: none;
+  color: inherit;
+  text-align: left;
+}
+
+.kv-select:disabled {
+  cursor: default;
+  color: inherit;
+  opacity: 1;
+}
+
+.kv-select b {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.kv-chevron {
+  flex: none;
+  color: var(--faint);
+  transition: transform 0.16s ease;
+}
+
+.kv-select.is-open .kv-chevron {
+  transform: rotate(180deg);
+}
+
+.meter-menu {
+  margin: 4px 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.75);
+}
+
+.meter-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 14px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: none;
+  color: var(--ink);
+  text-align: left;
+}
+
+.meter-menu-item:last-child {
+  border-bottom: 0;
+}
+
+.meter-menu-item.is-on {
+  background: var(--green-soft);
+  color: var(--green);
+}
+
+.meter-menu-main {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.meter-menu-main b {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.meter-menu-main span {
+  font-family: var(--num);
+  font-size: 11px;
+  color: var(--faint);
+}
+
+.meter-menu-item.is-on .meter-menu-main span {
+  color: var(--green);
+}
+
 .window-chips {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
@@ -1185,6 +1269,60 @@ button {
   font-size: 11px;
   line-height: 1.7;
   color: var(--orange);
+}
+
+.connect-note {
+  margin-top: 16px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: rgba(26, 107, 88, 0.06);
+  font-size: 12px;
+  line-height: 1.75;
+  color: var(--muted);
+}
+
+.meter-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 28px;
+}
+
+.meter-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.75);
+  color: var(--faint);
+  text-align: left;
+  transition: border-color 0.16s ease, background 0.16s ease;
+}
+
+.meter-option:active {
+  border-color: var(--green);
+  background: var(--green-soft);
+}
+
+.meter-option-main {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.meter-option-main b {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.meter-option-main span {
+  font-size: 11px;
+  color: var(--faint);
 }
 
 /* ============ 占位与错误 ============ */

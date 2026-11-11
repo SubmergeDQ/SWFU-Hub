@@ -163,23 +163,24 @@ export function MeterProvider({ children }: { children: ReactNode }) {
       return;
     }
     const cached = readCache(account.meterId);
-    if (cached) {
-      setStatus(cached.status);
-      setDaily(cached.daily);
-      setMonthly(Array.isArray(cached.monthly) ? cached.monthly : []);
-      setUpdatedAt(new Date(cached.savedAt));
-      // 只有今天抓到的缓存才能反推今天的零点读数，避免把旧数据算进今日
-      const savedToday = toDateString(new Date(cached.savedAt)) === toDateString(new Date());
-      setTodayZeroLeiji(
-        savedToday
-          ? todayZeroLeijiOf(
-              account.meterId,
-              Number(cached.status.leiji),
-              findTodayTotal(cached.daily),
-            )
-          : null,
-      );
-    }
+    // 切换户号时缓存可能不匹配，先清空，避免短暂显示上一间宿舍的数据
+    setStatus(cached?.status ?? null);
+    setDaily(cached?.daily ?? []);
+    setMonthly(Array.isArray(cached?.monthly) ? cached.monthly : []);
+    setUpdatedAt(cached ? new Date(cached.savedAt) : null);
+    // 只有今天抓到的缓存才能反推今天的零点读数，避免把旧数据算进今日
+    const savedToday = cached
+      ? toDateString(new Date(cached.savedAt)) === toDateString(new Date())
+      : false;
+    setTodayZeroLeiji(
+      savedToday && cached
+        ? todayZeroLeijiOf(
+            account.meterId,
+            Number(cached.status.leiji),
+            findTodayTotal(cached.daily),
+          )
+        : null,
+    );
   }, [account]);
 
   useEffect(() => {
