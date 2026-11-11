@@ -3,19 +3,90 @@
    一次盯住一条余额曲线，界面只做它的框架
    ========================================================== */
 :root {
+  color-scheme: light;
+
   --bg: #f3f4f1;
   --surface: #ffffff;
+  --panel-bg: rgba(255, 255, 255, 0.7);
+  --input-bg: rgba(255, 255, 255, 0.75);
   --ink: #101917;
   --muted: #4d5c55;
   --faint: #64726b;
   --green: #1a6b58;
   --green-deep: #145445;
   --green-soft: #e9efec;
+  --on-green: #f3f4f1;
   --orange: #c25e28;
+  --orange-deep: #a04f21;
+  --orange-soft: rgba(194, 94, 40, 0.06);
+  --orange-line: rgba(194, 94, 40, 0.22);
+  --danger-line: rgba(160, 79, 33, 0.3);
   --line: #e2e6e0;
+  --line-strong: #cfd6d0;
+  --placeholder: #a3afa8;
+  --hover-bg: #ffffff;
+  --tooltip-bg: rgba(16, 25, 23, 0.94);
+  --tooltip-ink: #eef2ef;
+  --skeleton-a: #e6e9e5;
+  --skeleton-b: #eff2ee;
+  --bar-idle: #cfdcd6;
+  --bar-soft: #9dbfb2;
+  --avatar-a: #dfe7e2;
+  --avatar-b: #eef1ed;
+  --chart-sync: #8a978f;
+  --chart-forecast: #7ba598;
+  --chart-active: #9aa79f;
+  --shadow-green: 0 8px 18px rgba(26, 107, 88, 0.2);
+  --shadow-green-active: 0 4px 10px rgba(26, 107, 88, 0.18);
+  --shadow-shell: 0 12px 40px rgba(16, 25, 23, 0.08);
+  --desktop-bg: #e8eae5;
+  --scroll-thumb: rgba(26, 107, 88, 0.32);
+
   --num: "Bahnschrift", "DIN Alternate", "Consolas", monospace;
   --serif: "Songti SC", "SimSun", "STSong", serif;
   --sans: "Inter", "PingFang SC", "Segoe UI", "Microsoft YaHei", sans-serif;
+}
+
+/* 深色主题：提亮文字与图标，面板改用低对比度的白色叠加 */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --bg: #0f1512;
+  --surface: #161d1a;
+  --panel-bg: rgba(255, 255, 255, 0.055);
+  --input-bg: rgba(255, 255, 255, 0.06);
+  --ink: #edf2ee;
+  --muted: #b0bdb5;
+  --faint: #8d9d94;
+  --green: #5cbfa2;
+  --green-deep: #7ad3b8;
+  --green-soft: rgba(92, 191, 162, 0.14);
+  --on-green: #0b1410;
+  --orange: #e08a5a;
+  --orange-deep: #f0a377;
+  --orange-soft: rgba(224, 138, 90, 0.12);
+  --orange-line: rgba(224, 138, 90, 0.28);
+  --danger-line: rgba(224, 138, 90, 0.32);
+  --line: rgba(255, 255, 255, 0.1);
+  --line-strong: rgba(255, 255, 255, 0.18);
+  --placeholder: #7d8d84;
+  --hover-bg: rgba(255, 255, 255, 0.12);
+  --tooltip-bg: rgba(236, 242, 238, 0.95);
+  --tooltip-ink: #101917;
+  --skeleton-a: #1c2521;
+  --skeleton-b: #26322c;
+  --bar-idle: #2b3a34;
+  --bar-soft: #3f6e5f;
+  --avatar-a: #22302a;
+  --avatar-b: #17201c;
+  --chart-sync: #8d9d94;
+  --chart-forecast: #4f8a77;
+  --chart-active: #7b8c82;
+  --shadow-green: 0 8px 20px rgba(0, 0, 0, 0.45);
+  --shadow-green-active: 0 4px 12px rgba(0, 0, 0, 0.4);
+  --shadow-shell: 0 12px 40px rgba(0, 0, 0, 0.55);
+  --desktop-bg: #070b09;
+  --scroll-thumb: rgba(92, 191, 162, 0.35);
 }
 
 *,
@@ -27,7 +98,7 @@
 html {
   -webkit-text-size-adjust: 100%;
   scrollbar-width: thin;
-  scrollbar-color: rgba(26, 107, 88, 0.32) transparent;
+  scrollbar-color: var(--scroll-thumb) transparent;
 }
 
 /* 页面与内部滚动容器统一使用细滚动条 */
@@ -38,7 +109,7 @@ html {
 
 ::-webkit-scrollbar-thumb {
   border-radius: 999px;
-  background: rgba(26, 107, 88, 0.32);
+  background: var(--scroll-thumb);
 }
 
 ::-webkit-scrollbar-track {
@@ -190,7 +261,7 @@ button {
   padding: 6px 10px;
   border: 1px solid var(--line);
   border-radius: 3px;
-  background: rgba(255, 255, 255, 0.6);
+  background: var(--panel-bg);
   font-size: 11px;
   letter-spacing: 0.08em;
   color: var(--muted);
@@ -206,7 +277,7 @@ button {
 
 .status-pill-warn {
   color: var(--orange);
-  border-color: rgba(194, 94, 40, 0.3);
+  border-color: var(--orange-line);
 }
 
 .status-pill-warn i {
@@ -226,13 +297,13 @@ button {
   place-items: center;
   border: 1px solid var(--line);
   border-radius: 3px;
-  background: rgba(255, 255, 255, 0.6);
+  background: var(--panel-bg);
   color: var(--muted);
   transition: background 0.16s ease;
 }
 
 .icon-btn:active:not(:disabled) {
-  background: #fff;
+  background: var(--hover-bg);
 }
 
 .icon-btn:disabled {
@@ -337,7 +408,7 @@ button {
 .chart-sync {
   font-family: var(--num);
   font-size: 9px;
-  fill: #8a978f;
+  fill: var(--chart-sync);
 }
 
 .chart-svg {
@@ -360,10 +431,39 @@ button {
 
 .chart-line-forecast {
   fill: none;
-  stroke: #7ba598;
+  stroke: var(--chart-forecast);
   stroke-width: 1.6;
   stroke-dasharray: 5 4;
   stroke-linejoin: round;
+}
+
+/* SVG 的展示属性不解析 var()，颜色统一交给 CSS */
+#balanceFade stop {
+  stop-color: var(--green);
+}
+
+.chart-grid {
+  stroke: var(--line);
+  stroke-width: 1;
+}
+
+.chart-end-halo {
+  fill: var(--orange);
+  opacity: 0.12;
+}
+
+.chart-end-dot {
+  fill: var(--orange);
+}
+
+.chart-active-line {
+  stroke: var(--chart-active);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+
+.chart-active-dot {
+  fill: var(--ink);
 }
 
 .chart-today-line {
@@ -375,7 +475,7 @@ button {
 .chart-axis {
   font-family: var(--num);
   font-size: 9px;
-  fill: #8a978f;
+  fill: var(--chart-sync);
 }
 
 .chart-axis-today,
@@ -403,8 +503,8 @@ button {
   gap: 1px;
   padding: 6px 9px;
   border-radius: 6px;
-  background: rgba(16, 25, 23, 0.94);
-  color: #eef2ef;
+  background: var(--tooltip-bg);
+  color: var(--tooltip-ink);
   font-size: 11px;
   line-height: 1.4;
   white-space: nowrap;
@@ -439,12 +539,12 @@ button {
   gap: 8px;
   margin-top: 14px;
   padding: 10px 12px;
-  border: 1px solid rgba(194, 94, 40, 0.22);
+  border: 1px solid var(--orange-line);
   border-radius: 6px;
-  background: rgba(194, 94, 40, 0.06);
+  background: var(--orange-soft);
   font-size: 11px;
   letter-spacing: 0.04em;
-  color: #a04f21;
+  color: var(--orange-deep);
 }
 
 .alert-dot {
@@ -480,7 +580,7 @@ button {
 
 .verdict em {
   font-style: normal;
-  color: #a04f21;
+  color: var(--orange-deep);
 }
 
 .stats {
@@ -523,19 +623,19 @@ button {
   border: 0;
   border-radius: 4px;
   background: var(--green);
-  color: #f3f4f1;
+  color: var(--on-green);
   font-size: 15px;
   font-weight: 600;
   letter-spacing: 0.16em;
   text-indent: 0.16em;
-  box-shadow: 0 8px 18px rgba(26, 107, 88, 0.2);
+  box-shadow: var(--shadow-green);
   transition: transform 0.16s ease, box-shadow 0.16s ease, background 0.16s ease;
 }
 
 .primary-btn:active:not(:disabled) {
   transform: translateY(1px);
   background: var(--green-deep);
-  box-shadow: 0 4px 10px rgba(26, 107, 88, 0.18);
+  box-shadow: var(--shadow-green-active);
 }
 
 .primary-btn:disabled {
@@ -553,7 +653,7 @@ button {
   padding: 0 22px;
   border: 1px solid var(--line);
   border-radius: 4px;
-  background: rgba(255, 255, 255, 0.7);
+  background: var(--panel-bg);
   font-size: 13px;
   letter-spacing: 0.08em;
   color: var(--ink);
@@ -561,8 +661,8 @@ button {
 }
 
 .ghost-btn:active {
-  background: #fff;
-  border-color: #cfd6d0;
+  background: var(--hover-bg);
+  border-color: var(--line-strong);
 }
 
 .ghost-btn-wide {
@@ -570,8 +670,8 @@ button {
 }
 
 .ghost-btn-danger {
-  color: #a04f21;
-  border-color: rgba(160, 79, 33, 0.3);
+  color: var(--orange-deep);
+  border-color: var(--danger-line);
 }
 
 .sync-line {
@@ -633,7 +733,7 @@ button {
   padding: 3px;
   border: 1px solid var(--line);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.6);
+  background: var(--panel-bg);
 }
 
 .segment button {
@@ -648,7 +748,7 @@ button {
 
 .segment button.is-on {
   background: var(--green);
-  color: #f3f4f1;
+  color: var(--on-green);
 }
 
 .bars {
@@ -668,7 +768,7 @@ button {
 
 .bar {
   width: 100%;
-  background: #cfdcd6;
+  background: var(--bar-idle);
   border-radius: 1px;
   transition: height 0.32s ease;
 }
@@ -739,7 +839,12 @@ button {
 .month-placeholder span {
   height: 18px;
   border-radius: 4px;
-  background: linear-gradient(90deg, #e6e9e5 25%, #eff2ee 37%, #e6e9e5 63%);
+  background: linear-gradient(
+    90deg,
+    var(--skeleton-a) 25%,
+    var(--skeleton-b) 37%,
+    var(--skeleton-a) 63%
+  );
   background-size: 400% 100%;
   animation: shimmer 1.5s ease-in-out infinite;
 }
@@ -782,7 +887,7 @@ button {
 .day-bar-fill {
   height: 100%;
   border-radius: 2px;
-  background: #9dbfb2;
+  background: var(--bar-soft);
 }
 
 .day-value {
@@ -814,7 +919,7 @@ button {
   gap: 3px;
   border: 1px solid var(--line);
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.7);
+  background: var(--panel-bg);
   transition: border-color 0.18s ease, background 0.18s ease;
 }
 
@@ -872,8 +977,8 @@ button {
   z-index: 30;
   padding: 9px 16px;
   border-radius: 999px;
-  background: rgba(16, 25, 23, 0.92);
-  color: #eef2ef;
+  background: var(--tooltip-bg);
+  color: var(--tooltip-ink);
   font-size: 12px;
   letter-spacing: 0.04em;
   white-space: nowrap;
@@ -899,7 +1004,7 @@ button {
   padding: 12px 14px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.7);
+  background: var(--panel-bg);
 }
 
 .custom-field > span:first-child {
@@ -922,7 +1027,7 @@ button {
 .custom-field input::placeholder {
   font-family: var(--sans);
   font-size: 11px;
-  color: #a3afa8;
+  color: var(--placeholder);
 }
 
 .custom-unit {
@@ -992,7 +1097,7 @@ button {
 }
 
 .profile-avatar-empty {
-  background: linear-gradient(135deg, #dfe7e2, #eef1ed);
+  background: linear-gradient(135deg, var(--avatar-a), var(--avatar-b));
 }
 
 .profile-name {
@@ -1068,7 +1173,7 @@ button {
   border: 1px solid var(--line);
   border-radius: 8px;
   overflow: hidden;
-  background: rgba(255, 255, 255, 0.75);
+  background: var(--panel-bg);
 }
 
 .meter-menu-item {
@@ -1121,12 +1226,19 @@ button {
   gap: 6px;
 }
 
+/* 外观三选一：跟随系统 / 浅色 / 深色 */
+.theme-chips {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+
 .window-chip {
   height: 38px;
   padding: 0;
   border: 1px solid var(--line);
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.7);
+  background: var(--panel-bg);
   font-size: 12px;
   color: var(--ink);
   transition: border-color 0.16s ease, background 0.16s ease, color 0.16s ease;
@@ -1147,7 +1259,7 @@ button {
   padding: 8px 10px 8px 14px;
   border: 1px solid var(--line);
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.7);
+  background: var(--panel-bg);
 }
 
 .window-custom input {
@@ -1247,7 +1359,7 @@ button {
   place-items: center;
   border: 1px solid var(--line);
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.6);
+  background: var(--panel-bg);
   font-family: var(--num);
   font-size: 9.5px;
   color: var(--green);
@@ -1271,7 +1383,7 @@ button {
   padding: 12px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.75);
+  background: var(--input-bg);
   font-size: 12px;
   line-height: 1.6;
   color: var(--ink);
@@ -1300,7 +1412,7 @@ button {
 }
 
 .field textarea::placeholder {
-  color: #a3afa8;
+  color: var(--placeholder);
 }
 
 .field-error {
@@ -1314,7 +1426,7 @@ button {
   margin-top: clamp(11px, 1.9vh, 17px);
   padding: 11px 13px;
   border-radius: 8px;
-  background: rgba(26, 107, 88, 0.06);
+  background: var(--green-soft);
   font-size: 12px;
   line-height: 1.62;
   color: var(--muted);
@@ -1348,7 +1460,7 @@ button {
   padding: 16px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.75);
+  background: var(--panel-bg);
   color: var(--faint);
   text-align: left;
   transition: border-color 0.16s ease, background 0.16s ease;
@@ -1379,7 +1491,12 @@ button {
 /* ============ 占位与错误 ============ */
 .skeleton {
   border-radius: 6px;
-  background: linear-gradient(90deg, #e6e9e5 25%, #eff2ee 37%, #e6e9e5 63%);
+  background: linear-gradient(
+    90deg,
+    var(--skeleton-a) 25%,
+    var(--skeleton-b) 37%,
+    var(--skeleton-a) 63%
+  );
   background-size: 400% 100%;
   animation: shimmer 1.5s ease-in-out infinite;
 }
@@ -1430,12 +1547,12 @@ button {
 /* ============ 桌面预览时仍保持手机宽度 ============ */
 @media (min-width: 460px) {
   body {
-    background: #e8eae5;
+    background: var(--desktop-bg);
   }
 
   .shell {
     background: var(--bg);
-    box-shadow: 0 12px 40px rgba(16, 25, 23, 0.08);
+    box-shadow: var(--shadow-shell);
   }
 }
 

@@ -1,17 +1,23 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMeter } from '../store/MeterContext';
-import { useSettings } from '../store/SettingsContext';
+import { useSettings, type ThemeMode } from '../store/SettingsContext';
 import { useAccount } from '../store/AccountContext';
 import { describeRoom } from '../lib/room';
 
 const WINDOW_PRESETS = [1, 3, 5, 7, 15];
 
+const THEME_OPTIONS: { value: ThemeMode; label: string }[] = [
+  { value: 'system', label: '跟随系统' },
+  { value: 'light', label: '浅色' },
+  { value: 'dark', label: '深色' },
+];
+
 export function Settings() {
   const { account, signOut, switchMeter } = useAccount();
   const navigate = useNavigate();
   const { status } = useMeter();
-  const { averageWindow, setAverageWindow } = useSettings();
+  const { averageWindow, setAverageWindow, theme, setTheme } = useSettings();
   const [draft, setDraft] = useState('');
   const [meterMenuOpen, setMeterMenuOpen] = useState(false);
 
@@ -152,6 +158,26 @@ export function Settings() {
 
         <p className="panel-hint">
           用最近几天的日均来推算还能用几天。天数越短，越跟得上最近的用电变化；天数越长，越平稳。
+        </p>
+      </section>
+
+      <section className="panel">
+        <div className="panel-title">外观</div>
+        <div className="theme-chips">
+          {THEME_OPTIONS.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              className={`window-chip ${theme === option.value ? 'is-on' : ''}`}
+              onClick={() => setTheme(option.value)}
+              aria-pressed={theme === option.value}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+        <p className="panel-hint">
+          跟随系统会随手机的深色模式自动切换；深色模式下已单独调亮文字与曲线，夜间查看不刺眼。
         </p>
       </section>
 

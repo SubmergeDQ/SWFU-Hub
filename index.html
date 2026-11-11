@@ -5,6 +5,23 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
     <meta name="theme-color" content="#f3f4f1" />
     <title>宿舍电量</title>
+    <script>
+      // 首帧前先定好明暗主题，避免深色模式启动时闪白
+      (function () {
+        try {
+          var raw = localStorage.getItem('swfu.electricity.settings.v1');
+          var mode = raw ? JSON.parse(raw).theme : 'system';
+          var dark =
+            mode === 'dark' ||
+            (mode !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+          document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+          var meta = document.querySelector('meta[name="theme-color"]');
+          if (meta) meta.setAttribute('content', dark ? '#0f1512' : '#f3f4f1');
+        } catch (error) {
+          // 本地存储不可用时按浅色渲染
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

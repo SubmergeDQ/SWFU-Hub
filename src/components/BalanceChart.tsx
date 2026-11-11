@@ -132,8 +132,8 @@ export function BalanceChart({ history, forecast, syncedLabel }: BalanceChartPro
       >
         <defs>
           <linearGradient id="balanceFade" x1="0" y1={PAD.top} x2="0" y2={bottom} gradientUnits="userSpaceOnUse">
-            <stop offset="0%" stopColor="#1a6b58" stopOpacity="0.14" />
-            <stop offset="100%" stopColor="#1a6b58" stopOpacity="0" />
+            <stop offset="0%" stopOpacity="0.14" />
+            <stop offset="100%" stopOpacity="0" />
           </linearGradient>
         </defs>
 
@@ -148,7 +148,7 @@ export function BalanceChart({ history, forecast, syncedLabel }: BalanceChartPro
 
         {model.gridLines.map((line) => (
           <g key={line.label}>
-            <line x1={PAD.left} y1={line.y} x2={W - PAD.right} y2={line.y} stroke="#e2e6e0" strokeWidth="1" />
+            <line x1={PAD.left} y1={line.y} x2={W - PAD.right} y2={line.y} className="chart-grid" />
             <text
               x={PAD.left - 6}
               y={line.y + 3}
@@ -172,8 +172,8 @@ export function BalanceChart({ history, forecast, syncedLabel }: BalanceChartPro
           className="chart-today-line"
         />
 
-        <circle cx={endCoord.x} cy={endCoord.y} r="9" fill="#c25e28" opacity="0.12" />
-        <circle cx={endCoord.x} cy={endCoord.y} r="3.6" fill="#c25e28" />
+        <circle cx={endCoord.x} cy={endCoord.y} r="9" className="chart-end-halo" />
+        <circle cx={endCoord.x} cy={endCoord.y} r="3.6" className="chart-end-dot" />
 
         <text x={model.startX} y={height - 9} textAnchor="middle" className="chart-axis">
           {showStartLabel ? model.startLabel : ''}
@@ -191,12 +191,12 @@ export function BalanceChart({ history, forecast, syncedLabel }: BalanceChartPro
             y1={PAD.top}
             x2={activeCoord.x}
             y2={bottom}
-            stroke="#9aa79f"
-            strokeWidth="1"
-            strokeDasharray="3 3"
+            className="chart-active-line"
           />
         )}
-        {activeCoord && <circle cx={activeCoord.x} cy={activeCoord.y} r="3.5" fill="#101917" />}
+        {activeCoord && (
+          <circle cx={activeCoord.x} cy={activeCoord.y} r="3.5" className="chart-active-dot" />
+        )}
       </svg>
 
       {activeCoord && (

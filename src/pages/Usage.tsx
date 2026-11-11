@@ -7,11 +7,9 @@ type Period = 7 | 30;
 
 /** 按当日用量占峰值的比例取色，用量越大越深，避免深浅看起来随机 */
 function barTone(ratio: number): string {
-  const from = [216, 230, 222];
-  const to = [26, 107, 88];
-  const t = Math.min(1, Math.max(0, ratio));
-  const rgb = from.map((value, index) => Math.round(value + (to[index] - value) * t));
-  return `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
+  const t = Math.round(Math.min(1, Math.max(0, ratio)) * 100);
+  // 用主题变量混合，深浅色模式下都能保持正确的明暗层次
+  return `color-mix(in srgb, var(--green) ${t}%, var(--bar-idle))`;
 }
 
 export function Usage() {
