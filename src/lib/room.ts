@@ -13,7 +13,7 @@ export interface RoomLabel {
   unit: number;
   floor: number;
   room: number;
-  /** 秋海苑1栋1单元117号 */
+  /** 秋海苑1栋1117号（11 楼 17 号） */
   text: string;
   /** 秋海苑1栋 */
   short: string;
