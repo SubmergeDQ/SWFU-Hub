@@ -19,7 +19,7 @@ export function Usage() {
   const { daily, monthly, loading, error, reload } = useMeter();
   const [period, setPeriod] = useState<Period>(30);
 
-  // 今天的数据还没走完，各类统计都排除掉；零点结束的记录归到前一天
+  // 今天的数据还没走完，各类统计都排除掉
   const complete = useMemo(() => {
     const today = toDateString(new Date());
     const items: { date: Date; total: number }[] = [];

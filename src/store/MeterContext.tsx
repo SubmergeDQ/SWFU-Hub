@@ -2,16 +2,18 @@ import { createContext, useCallback, useContext, useEffect, useState, type React
 import { fetchDailyUsage, fetchMeterStatus, fetchMonthlyUsage } from '../api/electricity';
 import type { DailyUsage, MeterStatus, MonthUsage } from '../api/types';
 import { toDateString } from '../lib/date';
+import { findTodayTotal } from '../lib/estimate';
 import { useAccount } from './AccountContext';
 
 const CACHE_KEY = 'swfu.electricity.meter.v1';
-const BASELINE_KEY = 'swfu.electricity.today-baseline.v1';
+// v2：基线从“当天首次读数”改为“今天零点的累计读数”，旧键不再读取
+const BASELINE_KEY = 'swfu.electricity.today-zero.v2';
 
-/** 当天首次观测到的本期累计电量，用来补出接口还没结算的今日用量 */
-interface TodayBaseline {
+/** 今天零点时的累计读数（度） */
+interface TodayZeroBaseline {
   meterId: string;
   date: string;
-  leiji: number;
+  zeroLeiji: number;
 }
 
 export interface CachedMeter {
@@ -26,8 +28,8 @@ interface MeterContextValue {
   status: MeterStatus | null;
   daily: DailyUsage[];
   monthly: MonthUsage[];
-  /** 今天首次观测到的本期累计电量，没有则为 null */
-  todayBaseline: number | null;
+  /** 今天零点时的累计读数，没有则为 null */
+  todayZeroLeiji: number | null;
   loading: boolean;
   error: string | null;
   updatedAt: Date | null;
@@ -56,19 +58,21 @@ function writeCache(entry: CachedMeter): void {
   }
 }
 
-function readBaseline(meterId: string): TodayBaseline | null {
+function readBaseline(meterId: string): TodayZeroBaseline | null {
   try {
     const raw = localStorage.getItem(BASELINE_KEY);
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<TodayBaseline>;
-    if (parsed.meterId !== meterId || !parsed.date || !Number.isFinite(parsed.leiji)) return null;
-    return parsed as TodayBaseline;
+    const parsed = JSON.parse(raw) as Partial<TodayZeroBaseline>;
+    if (parsed.meterId !== meterId || !parsed.date || !Number.isFinite(parsed.zeroLeiji)) {
+      return null;
+    }
+    return parsed as TodayZeroBaseline;
   } catch {
     return null;
   }
 }
 
-function writeBaseline(entry: TodayBaseline): void {
+function writeBaseline(entry: TodayZeroBaseline): void {
   try {
     localStorage.setItem(BASELINE_KEY, JSON.stringify(entry));
   } catch {
@@ -76,15 +80,24 @@ function writeBaseline(entry: TodayBaseline): void {
   }
 }
 
-/** 取出当天的累计电量基线；跨天或换表后旧基线立即失效 */
-function todayBaselineOf(meterId: string, leiji: number): number | null {
+/**
+ * 取今天零点的累计读数。
+ * 接口的今日日用量只更新到上一次结算时刻，用「当前累计 − 今日日用量」反推零点读数；
+ * 当天已经存过基线就直接沿用，避免接口滞后把基线越算越大。
+ */
+function todayZeroLeijiOf(
+  meterId: string,
+  leiji: number,
+  todayTotal: number | null,
+): number | null {
   const todayKey = toDateString(new Date());
   const stored = readBaseline(meterId);
-  if (stored && stored.date === todayKey && leiji >= stored.leiji) return stored.leiji;
-  if (!Number.isFinite(leiji)) return null;
-  // 首次观测或累计值被清零（如月初重算）时，把当前读数当作今天的起点
-  writeBaseline({ meterId, date: todayKey, leiji });
-  return leiji;
+  if (stored && stored.date === todayKey) return stored.zeroLeiji;
+  if (!Number.isFinite(leiji) || leiji <= 0) return null;
+
+  const zeroLeiji = todayTotal != null && leiji > todayTotal ? leiji - todayTotal : leiji;
+  writeBaseline({ meterId, date: todayKey, zeroLeiji });
+  return zeroLeiji;
 }
 
 /**
@@ -97,7 +110,7 @@ export function MeterProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<MeterStatus | null>(null);
   const [daily, setDaily] = useState<DailyUsage[]>([]);
   const [monthly, setMonthly] = useState<MonthUsage[]>([]);
-  const [todayBaseline, setTodayBaseline] = useState<number | null>(null);
+  const [todayZeroLeiji, setTodayZeroLeiji] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
@@ -115,7 +128,13 @@ export function MeterProvider({ children }: { children: ReactNode }) {
       setStatus(nextStatus);
       setDaily(nextDaily);
       setMonthly(nextMonthly);
-      setTodayBaseline(todayBaselineOf(account.meterId, Number(nextStatus.leiji)));
+      setTodayZeroLeiji(
+        todayZeroLeijiOf(
+          account.meterId,
+          Number(nextStatus.leiji),
+          findTodayTotal(nextDaily),
+        ),
+      );
       const savedAt = Date.now();
       setUpdatedAt(new Date(savedAt));
       writeCache({
@@ -140,7 +159,7 @@ export function MeterProvider({ children }: { children: ReactNode }) {
       setStatus(null);
       setDaily([]);
       setMonthly([]);
-      setTodayBaseline(null);
+      setTodayZeroLeiji(null);
       return;
     }
     const cached = readCache(account.meterId);
@@ -149,9 +168,17 @@ export function MeterProvider({ children }: { children: ReactNode }) {
       setDaily(cached.daily);
       setMonthly(Array.isArray(cached.monthly) ? cached.monthly : []);
       setUpdatedAt(new Date(cached.savedAt));
-      // 只有今天抓到的缓存才能当作今天的累计基线，避免把旧读数算进今日
+      // 只有今天抓到的缓存才能反推今天的零点读数，避免把旧数据算进今日
       const savedToday = toDateString(new Date(cached.savedAt)) === toDateString(new Date());
-      setTodayBaseline(savedToday ? todayBaselineOf(account.meterId, Number(cached.status.leiji)) : null);
+      setTodayZeroLeiji(
+        savedToday
+          ? todayZeroLeijiOf(
+              account.meterId,
+              Number(cached.status.leiji),
+              findTodayTotal(cached.daily),
+            )
+          : null,
+      );
     }
   }, [account]);
 
@@ -160,7 +187,7 @@ export function MeterProvider({ children }: { children: ReactNode }) {
   }, [reload]);
 
   return (
-    <MeterContext.Provider value={{ status, daily, monthly, todayBaseline, loading, error, updatedAt, reload }}>
+    <MeterContext.Provider value={{ status, daily, monthly, todayZeroLeiji, loading, error, updatedAt, reload }}>
       {children}
     </MeterContext.Provider>
   );

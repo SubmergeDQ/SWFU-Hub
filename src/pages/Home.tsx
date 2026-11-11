@@ -12,13 +12,13 @@ export function Home() {
   const { account } = useAccount();
   const navigate = useNavigate();
   const { averageWindow } = useSettings();
-  const { status, daily, todayBaseline, loading, error, updatedAt, reload } = useMeter();
+  const { status, daily, todayZeroLeiji, loading, error, updatedAt, reload } = useMeter();
   const [toast, setToast] = useState('');
   const toastTimer = useRef<number | null>(null);
 
   const estimate = useMemo(
-    () => (status ? estimateUsage(status, daily, averageWindow, new Date(), todayBaseline) : null),
-    [status, daily, averageWindow, todayBaseline],
+    () => (status ? estimateUsage(status, daily, averageWindow, new Date(), todayZeroLeiji) : null),
+    [status, daily, averageWindow, todayZeroLeiji],
   );
 
   const showToast = (text: string) => {

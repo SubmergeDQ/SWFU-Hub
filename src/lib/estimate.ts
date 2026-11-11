@@ -34,16 +34,36 @@ interface CompleteDay {
 }
 
 /**
+ * 找出接口里归日为今天的日用量；同一天多条时取 endtime 最新的一条。
+ * 日记录只更新到上一次结算时刻，实时用量还需要用它反推今天零点的累计读数。
+ */
+export function findTodayTotal(rawDaily: DailyUsage[], now = new Date()): number | null {
+  const todayKey = toDateString(now);
+  let latestEndtime = '';
+  let total: number | null = null;
+
+  for (const item of rawDaily) {
+    const day = item.endtime ? usageDayOf(item.endtime) : null;
+    if (!day || toDateString(day) !== todayKey) continue;
+    if (item.endtime >= latestEndtime) {
+      latestEndtime = item.endtime;
+      total = Number(item.total) || 0;
+    }
+  }
+  return total;
+}
+
+/**
  * 把电表读数和每日用电量折成一条余额曲线：
  * 历史段用真实消耗向前反推，预测段按选定窗口的日均线性下降。
- * todayBaseline 是今天首次观测到的本期累计电量，用于在接口还没生成今日记录时补出今天已用的部分。
+ * todayZeroLeiji 是今天零点时的累计读数，用当前读数减它得到今天已用的实时用量。
  */
 export function estimateUsage(
   status: { shengyu: string; leiji: string; price: string },
   rawDaily: DailyUsage[],
   averageWindow = 7,
   now = new Date(),
-  todayBaseline: number | null = null,
+  todayZeroLeiji: number | null = null,
 ): Estimate {
   const balance = Number(status.shengyu) || 0;
   const price = Number(status.price) || 0;
@@ -82,12 +102,12 @@ export function estimateUsage(
 
   const dailyRecent = average(complete.slice(-windowDays));
   const daily30 = average(complete);
-  // 接口的日记录要到次日零点才结算，今天白天只能靠累计电量差值补出已用量
-  const baselineUsage =
-    todayBaseline != null && usedTotal > 0 && usedTotal >= todayBaseline
-      ? usedTotal - todayBaseline
+  // 日记录只更新到上一次结算时刻，用当前累计读数减今天零点读数补出实时增量
+  const meterUsage =
+    todayZeroLeiji != null && usedTotal > 0 && usedTotal >= todayZeroLeiji
+      ? usedTotal - todayZeroLeiji
       : null;
-  const todayUsage = baselineUsage ?? apiTodayUsage;
+  const todayUsage = meterUsage ?? apiTodayUsage;
   const daily = dailyRecent > 0 ? dailyRecent : daily30;
   const daysLeft = daily > 0 ? balance / daily : Number.POSITIVE_INFINITY;
   const endDate = shiftDays(now, Math.round(daysLeft));
