@@ -32,11 +32,12 @@ export function normalizeDayString(value: string): string | null {
 
 /**
  * 每日用电记录实际统计的日期。
- * 接口用 starttime → endtime 表示统计区间，endtime 就是统计日，
- * 例如 starttime=2026-11-10、endtime=2026-11-11 表示 11-11 当天的用量。
+ * 接口用 starttime → endtime 表示统计区间，starttime 才是统计日，
+ * 例如 starttime=2026-11-10、endtime=2026-11-11 表示 11-10 当天的用量，
+ * 这条记录会在 11-11 凌晨结算生成。
  */
-export function usageDayOf(endtime: string): Date | null {
-  const day = normalizeDayString(endtime);
+export function usageDayOf(starttime: string, endtime: string): Date | null {
+  const day = normalizeDayString(starttime) ?? normalizeDayString(endtime);
   return day ? parseDayString(day) : null;
 }
 

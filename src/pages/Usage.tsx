@@ -22,7 +22,7 @@ export function Usage() {
     const today = toDateString(new Date());
     const items: { date: Date; total: number }[] = [];
     for (const item of daily) {
-      const day = item.endtime ? usageDayOf(item.endtime) : null;
+      const day = item.endtime ? usageDayOf(item.starttime, item.endtime) : null;
       if (!day || toDateString(day) >= today) continue;
       items.push({ date: day, total: Number(item.total) || 0 });
     }

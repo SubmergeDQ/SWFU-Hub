@@ -14,20 +14,28 @@ import {
   fetchMonthlyUsage,
 } from '../api/electricity';
 import type { DailyUsage, MeterStatus, MonthUsage } from '../api/types';
-import { toDateString } from '../lib/date';
+import { shiftDays, toDateString } from '../lib/date';
 import { findTodayTotal } from '../lib/estimate';
 import { sameMeters, type Account } from './account';
 import { useAccount } from './AccountContext';
 
 const CACHE_KEY = 'swfu.electricity.meter.v1';
-// v2：基线从“当天首次读数”改为“今天零点的累计读数”，旧键不再读取
-const BASELINE_KEY = 'swfu.electricity.today-zero.v2';
+// v3：日记录改按 starttime 归日，基线算法升级，旧键不再读取
+const BASELINE_KEY = 'swfu.electricity.today-zero.v3';
+// 记录每天最后一次读到的累计值，跨天后用它当作新一天零点
+const LAST_READING_KEY = 'swfu.electricity.last-reading.v1';
 
 /** 今天零点时的累计读数（度） */
 interface TodayZeroBaseline {
   meterId: string;
   date: string;
   zeroLeiji: number;
+}
+
+interface LastReading {
+  meterId: string;
+  date: string;
+  leiji: number;
 }
 
 export interface CachedMeter {
@@ -94,10 +102,32 @@ function writeBaseline(entry: TodayZeroBaseline): void {
   }
 }
 
+function readLastReading(meterId: string): LastReading | null {
+  try {
+    const raw = localStorage.getItem(LAST_READING_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<LastReading>;
+    if (parsed.meterId !== meterId || !parsed.date || !Number.isFinite(parsed.leiji)) {
+      return null;
+    }
+    return parsed as LastReading;
+  } catch {
+    return null;
+  }
+}
+
+function writeLastReading(entry: LastReading): void {
+  try {
+    localStorage.setItem(LAST_READING_KEY, JSON.stringify(entry));
+  } catch {
+    // 本地空间不足时静默跳过，不影响读数
+  }
+}
+
 /**
  * 取今天零点的累计读数。
- * 接口的今日日用量只更新到上一次结算时刻，用「当前累计 − 今日日用量」反推零点读数；
- * 当天已经存过基线就直接沿用，避免接口滞后把基线越算越大。
+ * 日记录按 starttime 归日，当天的记录要到次日凌晨才结算，
+ * 所以优先用「当前累计 − 今日日用量」反推；跨天时退回到昨天最后一次读数。
  */
 function todayZeroLeijiOf(
   meterId: string,
@@ -109,7 +139,31 @@ function todayZeroLeijiOf(
   if (stored && stored.date === todayKey) return stored.zeroLeiji;
   if (!Number.isFinite(leiji) || leiji <= 0) return null;
 
-  const zeroLeiji = todayTotal != null && leiji > todayTotal ? leiji - todayTotal : leiji;
+  let zeroLeiji = leiji;
+  if (todayTotal != null && leiji > todayTotal) {
+    zeroLeiji = leiji - todayTotal;
+  } else {
+    // 接口今天还没有记录，用昨天最后一次读数近似今天零点
+    const yesterdayKey = toDateString(shiftDays(new Date(), -1));
+    const last = readLastReading(meterId);
+    if (last && last.date === yesterdayKey && last.leiji > 0 && last.leiji <= leiji) {
+      zeroLeiji = last.leiji;
+    } else {
+      // 升级当天没有历史读数时，退回今天早些时候缓存的值，尽量少漏算
+      const cached = readCache(meterId);
+      const cachedLeiji = cached ? Number(cached.status.leiji) : NaN;
+      if (
+        cached &&
+        toDateString(new Date(cached.savedAt)) === todayKey &&
+        Number.isFinite(cachedLeiji) &&
+        cachedLeiji > 0 &&
+        cachedLeiji <= leiji
+      ) {
+        zeroLeiji = cachedLeiji;
+      }
+    }
+  }
+
   writeBaseline({ meterId, date: todayKey, zeroLeiji });
   return zeroLeiji;
 }
@@ -189,6 +243,15 @@ export function MeterProvider({ children }: { children: ReactNode }) {
           findTodayTotal(nextDaily),
         ),
       );
+      // 记下当天最后一次读数，跨天后作为新一天的零点
+      const leiji = Number(nextStatus.leiji);
+      if (Number.isFinite(leiji) && leiji > 0) {
+        writeLastReading({
+          meterId: effective.meterId,
+          date: toDateString(new Date()),
+          leiji,
+        });
+      }
       const savedAt = Date.now();
       setUpdatedAt(new Date(savedAt));
       writeCache({
@@ -239,6 +302,23 @@ export function MeterProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     void reload();
+  }, [reload]);
+
+  // App 常驻或后台过夜时，跨天自动重算今天零点并刷新数据
+  useEffect(() => {
+    let lastDay = toDateString(new Date());
+    const checkDay = () => {
+      const day = toDateString(new Date());
+      if (day === lastDay) return;
+      lastDay = day;
+      void reload();
+    };
+    const timer = window.setInterval(checkDay, 60_000);
+    document.addEventListener('visibilitychange', checkDay);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', checkDay);
+    };
   }, [reload]);
 
   return (

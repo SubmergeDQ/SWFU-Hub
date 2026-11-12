@@ -43,7 +43,7 @@ export function findTodayTotal(rawDaily: DailyUsage[], now = new Date()): number
   let total: number | null = null;
 
   for (const item of rawDaily) {
-    const day = item.endtime ? usageDayOf(item.endtime) : null;
+    const day = item.endtime ? usageDayOf(item.starttime, item.endtime) : null;
     if (!day || toDateString(day) !== todayKey) continue;
     if (item.endtime >= latestEndtime) {
       latestEndtime = item.endtime;
@@ -77,7 +77,7 @@ export function estimateUsage(
   let apiTodayEndtime = '';
 
   for (const item of rawDaily) {
-    const day = item.endtime ? usageDayOf(item.endtime) : null;
+    const day = item.endtime ? usageDayOf(item.starttime, item.endtime) : null;
     if (!day) continue;
     const dayKey = toDateString(day);
     const total = Number(item.total) || 0;
