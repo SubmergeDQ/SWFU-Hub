@@ -12,13 +12,24 @@ export function Home() {
   const { account } = useAccount();
   const navigate = useNavigate();
   const { averageWindow } = useSettings();
-  const { status, daily, todayZeroLeiji, loading, error, updatedAt, reload } = useMeter();
+  const { status, daily, todayZeroLeiji, todayZeroApproximate, loading, error, updatedAt, reload } =
+    useMeter();
   const [toast, setToast] = useState('');
   const toastTimer = useRef<number | null>(null);
 
   const estimate = useMemo(
-    () => (status ? estimateUsage(status, daily, averageWindow, new Date(), todayZeroLeiji) : null),
-    [status, daily, averageWindow, todayZeroLeiji],
+    () =>
+      status
+        ? estimateUsage(
+            status,
+            daily,
+            averageWindow,
+            new Date(),
+            todayZeroLeiji,
+            todayZeroApproximate,
+          )
+        : null,
+    [status, daily, averageWindow, todayZeroLeiji, todayZeroApproximate],
   );
 
   const showToast = (text: string) => {
@@ -145,7 +156,11 @@ export function Home() {
 
       <section className="stats">
         <div className="stat">
-          <b>{estimate.todayUsage != null ? estimate.todayUsage.toFixed(2) : '—'}</b>
+          <b>
+            {estimate.todayUsage != null
+              ? `${estimate.todayUsageApproximate ? '≈ ' : ''}${estimate.todayUsage.toFixed(2)}`
+              : '—'}
+          </b>
           <span>当日用量 · 度</span>
         </div>
         <div className="stat">

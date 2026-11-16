@@ -19,8 +19,10 @@ export interface Estimate {
   dailyRecent: number;
   /** 近 30 天日均，用来做长期对照 */
   daily30: number;
-  /** 今日已用电量，接口当天还没生成记录时为 null */
+  /** 今日已用电量，无法可靠推算时为 null */
   todayUsage: number | null;
+  /** 今日用量是否为估算值（零点读数由昨天的最后读数外推而来） */
+  todayUsageApproximate: boolean;
   daysLeft: number;
   endDate: Date;
   history: CurvePoint[];
@@ -34,23 +36,27 @@ interface CompleteDay {
 }
 
 /**
- * 找出接口里归日为今天的日用量；同一天多条时取 endtime 最新的一条。
- * 日记录只更新到上一次结算时刻，实时用量还需要用它反推今天零点的累计读数。
+ * 找出接口里归日为指定那天的日用量；同一天多条时取 endtime 最新的一条。
+ * 日记录只更新到上一次结算时刻，实时用量还需要用它反推零点累计读数。
  */
-export function findTodayTotal(rawDaily: DailyUsage[], now = new Date()): number | null {
-  const todayKey = toDateString(now);
+export function findDayTotal(rawDaily: DailyUsage[], dayKey: string): number | null {
   let latestEndtime = '';
   let total: number | null = null;
 
   for (const item of rawDaily) {
     const day = item.endtime ? usageDayOf(item.starttime, item.endtime) : null;
-    if (!day || toDateString(day) !== todayKey) continue;
+    if (!day || toDateString(day) !== dayKey) continue;
     if (item.endtime >= latestEndtime) {
       latestEndtime = item.endtime;
       total = Number(item.total) || 0;
     }
   }
   return total;
+}
+
+/** 找出接口里归日为今天的日用量 */
+export function findTodayTotal(rawDaily: DailyUsage[], now = new Date()): number | null {
+  return findDayTotal(rawDaily, toDateString(now));
 }
 
 /**
@@ -64,6 +70,7 @@ export function estimateUsage(
   averageWindow = 7,
   now = new Date(),
   todayZeroLeiji: number | null = null,
+  todayZeroApproximate = false,
 ): Estimate {
   const balance = Number(status.shengyu) || 0;
   const price = Number(status.price) || 0;
@@ -86,7 +93,8 @@ export function estimateUsage(
       // 同一天可能返回多条，只取 endtime 最新的一条，避免重复累加
       if (item.endtime >= apiTodayEndtime) {
         apiTodayEndtime = item.endtime;
-        apiTodayUsage = total;
+        // total=0 多半是当天还没结算的占位行，不能当成真实用量
+        apiTodayUsage = total > 0 ? total : null;
       }
       continue;
     }
@@ -147,6 +155,7 @@ export function estimateUsage(
     dailyRecent,
     daily30,
     todayUsage,
+    todayUsageApproximate: meterUsage != null && todayZeroApproximate,
     daysLeft,
     endDate,
     history,

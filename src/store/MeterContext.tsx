@@ -15,16 +15,16 @@ import {
 } from '../api/electricity';
 import type { DailyUsage, MeterStatus, MonthUsage } from '../api/types';
 import { shiftDays, toDateString } from '../lib/date';
-import { findTodayTotal } from '../lib/estimate';
+import { findDayTotal, findTodayTotal } from '../lib/estimate';
 import { sameMeters, type Account } from './account';
 import { useAccount } from './AccountContext';
 
 // v2：缓存按 meterId 分表，多个户号切换后不用重新等首屏
 const CACHE_KEY = 'swfu.electricity.meter.v2';
-// v4：零点基线按 meterId 分表存，并记录来源；接口结算值一到就能当天内升级
-const BASELINE_KEY = 'swfu.electricity.today-zero.v4';
-// 记录每块表每天最后一次读到的累计值，跨天后用它当作新一天零点
-const LAST_READING_KEY = 'swfu.electricity.last-reading.v4';
+// v5：零点基线按 meterId 分表存，记录来源与建立时刻；接口结算值一到就能当天内升级
+const BASELINE_KEY = 'swfu.electricity.today-zero.v5';
+// 记录每块表每天最后一次读到的累计值和时间，跨天后用它估算新一天零点
+const LAST_READING_KEY = 'swfu.electricity.last-reading.v5';
 
 /** api：由接口结算的当日用量反推；history：昨天的最后读数；first：当天首次读数 */
 type BaselineSource = 'api' | 'history' | 'first';
@@ -34,12 +34,31 @@ interface TodayZeroBaseline {
   date: string;
   zeroLeiji: number;
   source: BaselineSource;
+  /** 基线建立时刻，用来判断是否紧贴 0 点 */
+  at: number;
+  /** 零点是否为估算值 */
+  approximate: boolean;
 }
 
 interface LastReading {
   date: string;
   leiji: number;
+  at: number;
 }
+
+/** 零点读数及其可信程度 */
+interface TodayZeroResult {
+  zeroLeiji: number;
+  /** 能不能用来推算当日用量；false 时界面显示「—」 */
+  usable: boolean;
+  /** 是否为估算值 */
+  approximate: boolean;
+}
+
+// 当天首次读数落在 0 点后这 15 分钟内，漏算的部分可以忽略
+const MIDNIGHT_WINDOW_MS = 15 * 60 * 1000;
+// 昨天最后读数离 0 点超过半小时，就要按时间比例补一段估算
+const HISTORY_APPROXIMATE_HOURS = 0.5;
 
 export interface CachedMeter {
   meterId: string;
@@ -55,6 +74,8 @@ interface MeterContextValue {
   monthly: MonthUsage[];
   /** 今天零点时的累计读数，没有则为 null */
   todayZeroLeiji: number | null;
+  /** 零点读数是否为估算值 */
+  todayZeroApproximate: boolean;
   loading: boolean;
   error: string | null;
   updatedAt: Date | null;
@@ -102,64 +123,119 @@ function persistBaseline(
   date: string,
   zeroLeiji: number,
   source: BaselineSource,
+  at: Date,
+  approximate: boolean,
 ): number {
-  writeMapEntry<TodayZeroBaseline>(BASELINE_KEY, meterId, { date, zeroLeiji, source });
+  writeMapEntry<TodayZeroBaseline>(BASELINE_KEY, meterId, {
+    date,
+    zeroLeiji,
+    source,
+    at: at.getTime(),
+    approximate,
+  });
   return zeroLeiji;
 }
 
-/** 记下当天最后一次读数，跨天后作为新一天的零点 */
+/** 记下当天最后一次读数，跨天后用它估算新一天的零点 */
 function recordLastReading(meterId: string, leiji: number, now = new Date()): void {
   if (!Number.isFinite(leiji) || leiji <= 0) return;
-  writeMapEntry<LastReading>(LAST_READING_KEY, meterId, { date: toDateString(now), leiji });
+  writeMapEntry<LastReading>(LAST_READING_KEY, meterId, {
+    date: toDateString(now),
+    leiji,
+    at: now.getTime(),
+  });
+}
+
+/** 当天首次读数是否紧贴 0 点，紧贴时漏算的部分可以忽略 */
+function withinMidnightWindow(at: number): boolean {
+  const date = new Date(at);
+  return date.getHours() === 0 && date.getMinutes() < MIDNIGHT_WINDOW_MS / 60000;
 }
 
 /**
  * 取今天零点的累计读数，按可信度从高到低回退：
- * 1. 接口结算的当日用量反推（最接近真实零点）；
- * 2. 昨天最后一次读数（跨天时最接近 00:00）；
- * 3. 当天首次读数（前面都缺失时兜底，会少算打开 App 之前的部分）。
+ * 1. 接口结算的当日用量反推（最准确）；
+ * 2. 昨天最后一次读数，按离 0 点的时间比例补上估算的夜间消耗；
+ * 3. 当天首次读数，只有紧贴 0 点时才可信，否则宁可显示「—」。
  * 当天基线只在出现更可信的来源时升级，避免接口还没结算时把零点锁死。
  */
 function todayZeroLeijiOf(
   meterId: string,
   leiji: number,
   todayTotal: number | null,
+  yesterdayTotal: number | null,
   now = new Date(),
-): number | null {
+): TodayZeroResult | null {
   const todayKey = toDateString(now);
   const stored = readMapEntry<TodayZeroBaseline>(BASELINE_KEY, meterId);
   const saved = stored && stored.date === todayKey ? stored : null;
-
   const validLeiji = Number.isFinite(leiji) && leiji > 0;
 
   // total=0 多半是当天还没结算的占位行，拿它反推会把零点锁成当前读数
   if (validLeiji && todayTotal != null && todayTotal > 0 && leiji > todayTotal) {
     const apiZero = leiji - todayTotal;
     // 结算值会随当天累计增长，多次反推时取更小的基线，更接近真实零点
-    if (saved && saved.source === 'api' && saved.zeroLeiji <= apiZero) return saved.zeroLeiji;
-    return persistBaseline(meterId, todayKey, apiZero, 'api');
+    if (saved && saved.source === 'api' && saved.zeroLeiji <= apiZero) {
+      return { zeroLeiji: saved.zeroLeiji, usable: true, approximate: false };
+    }
+    const zeroLeiji = persistBaseline(meterId, todayKey, apiZero, 'api', now, false);
+    return { zeroLeiji, usable: true, approximate: false };
   }
 
   // 接口值一旦到手就是当天最可信的结果，不再被历史读数覆盖
-  if (saved && saved.source === 'api') return saved.zeroLeiji;
-  if (saved && saved.source === 'history') return saved.zeroLeiji;
-
+  if (saved && saved.source === 'api') {
+    return { zeroLeiji: saved.zeroLeiji, usable: true, approximate: false };
+  }
+  // 0 点刚过就抓到读数时，它比用昨天的读数外推更准
+  if (saved && saved.source === 'first' && withinMidnightWindow(saved.at)) {
+    return { zeroLeiji: saved.zeroLeiji, usable: true, approximate: false };
+  }
   const yesterdayKey = toDateString(shiftDays(now, -1));
   const last = readMapEntry<LastReading>(LAST_READING_KEY, meterId);
-  if (
+  const lastUsable = Boolean(
     last &&
-    last.date === yesterdayKey &&
-    Number.isFinite(last.leiji) &&
-    last.leiji > 0 &&
-    (!validLeiji || last.leiji <= leiji)
-  ) {
-    return persistBaseline(meterId, todayKey, last.leiji, 'history');
+      last.date === yesterdayKey &&
+      Number.isFinite(last.leiji) &&
+      last.leiji > 0 &&
+      Number.isFinite(last.at) &&
+      (!validLeiji || last.leiji <= leiji),
+  );
+
+  // 昨天的读数已经被今天的记录覆盖时，直接沿用当天已经建好的基线
+  if (saved && saved.source === 'history' && !lastUsable) {
+    return { zeroLeiji: saved.zeroLeiji, usable: true, approximate: saved.approximate };
   }
 
-  // 之前记过的当天首次读数比现在更早，保留它
-  if (saved) return saved.zeroLeiji;
+  if (last && lastUsable) {
+    // 昨天最后读数不一定贴着 0 点，用它当天零点会多算那段夜间用电，
+    // 按昨天全天总量和时间比例补一段，减少跨天误差
+    const lastAt = new Date(last.at);
+    const hour = lastAt.getHours() + lastAt.getMinutes() / 60 + lastAt.getSeconds() / 3600;
+    const gapHours = Math.max(0, 24 - hour);
+    const gapEstimate =
+      yesterdayTotal != null && yesterdayTotal > 0
+        ? (yesterdayTotal * gapHours) / 24
+        : 0;
+    const zeroLeiji = last.leiji + gapEstimate;
+    // 估出来的零点不应该超过当前读数，超过了说明数据不可信
+    if (validLeiji && zeroLeiji > leiji) return null;
+
+    const approximate = gapHours > HISTORY_APPROXIMATE_HOURS;
+    persistBaseline(meterId, todayKey, zeroLeiji, 'history', now, approximate);
+    return { zeroLeiji, usable: true, approximate };
+  }
+
+  // 之前记过的当天首次读数比现在更早，保留它；但只有紧贴 0 点才能用来算当日用量
+  if (saved) {
+    return {
+      zeroLeiji: saved.zeroLeiji,
+      usable: withinMidnightWindow(saved.at),
+      approximate: saved.approximate,
+    };
+  }
   if (!validLeiji) return null;
-  return persistBaseline(meterId, todayKey, leiji, 'first');
+  persistBaseline(meterId, todayKey, leiji, 'first', now, false);
+  return { zeroLeiji: leiji, usable: withinMidnightWindow(now.getTime()), approximate: false };
 }
 
 /**
@@ -174,6 +250,7 @@ export function MeterProvider({ children }: { children: ReactNode }) {
   const [daily, setDaily] = useState<DailyUsage[]>([]);
   const [monthly, setMonthly] = useState<MonthUsage[]>([]);
   const [todayZeroLeiji, setTodayZeroLeiji] = useState<number | null>(null);
+  const [todayZeroApproximate, setTodayZeroApproximate] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
@@ -200,25 +277,27 @@ export function MeterProvider({ children }: { children: ReactNode }) {
 
       let nextStatus: MeterStatus | null = null;
       let nextDaily: DailyUsage[] | null = null;
-      let nextMonthly: MonthUsage[] | null = null;
 
       const applyBaseline = (meterStatus: MeterStatus, meterDaily: DailyUsage[] | null) => {
-        setTodayZeroLeiji(
-          todayZeroLeijiOf(
-            current.meterId,
-            Number(meterStatus.leiji),
-            findTodayTotal(meterDaily ?? []),
-          ),
+        const now = new Date();
+        const yesterdayKey = toDateString(shiftDays(now, -1));
+        const baseline = todayZeroLeijiOf(
+          current.meterId,
+          Number(meterStatus.leiji),
+          findTodayTotal(meterDaily ?? [], now),
+          findDayTotal(meterDaily ?? [], yesterdayKey),
+          now,
         );
+        // 没有可信零点时传 null，界面显示「—」，不要用 0 误导
+        setTodayZeroLeiji(baseline && baseline.usable ? baseline.zeroLeiji : null);
+        setTodayZeroApproximate(baseline && baseline.usable ? baseline.approximate : false);
       };
 
       // 实时电量最先落地，首屏不用等 30 天和 6 个月的历史查询
       const statusTask = fetchMeterStatus(current).then((value) => {
         nextStatus = value;
         setStatus(value);
-        // 先用昨天的最后读数建立零点，再记录今天的读数，否则跨天时会取不到昨天那条
         applyBaseline(value, nextDaily);
-        recordLastReading(current.meterId, Number(value.leiji));
         return value;
       });
 
@@ -231,26 +310,35 @@ export function MeterProvider({ children }: { children: ReactNode }) {
       });
 
       const monthlyTask = fetchMonthlyUsage(current.meterId, 6).then((value) => {
-        nextMonthly = value;
         setMonthly(value);
         return value;
       });
 
-      const results = await Promise.allSettled([statusTask, dailyTask, monthlyTask]);
-      const failure = results.find((item) => item.status === 'rejected');
-      if (failure && failure.status === 'rejected') {
-        const cause = failure.reason;
+      const [statusResult, dailyResult, monthlyResult] = await Promise.allSettled([
+        statusTask,
+        dailyTask,
+        monthlyTask,
+      ]);
+      const failed = [statusResult, dailyResult, monthlyResult].find(
+        (item) => item.status === 'rejected',
+      );
+      if (failed && failed.status === 'rejected') {
+        const cause = failed.reason;
         setError(cause instanceof Error ? cause.message : '读取失败');
       }
 
-      if (nextStatus) {
+      if (statusResult.status === 'fulfilled') {
+        const finalStatus = statusResult.value;
+        // 所有数据都取完再记今天的读数，避免覆盖掉建立零点要用的昨天那条
+        recordLastReading(current.meterId, Number(finalStatus.leiji));
         const cached = readCache(current.meterId);
         const savedAt = Date.now();
         writeCache({
           meterId: current.meterId,
-          status: nextStatus,
-          daily: nextDaily ?? cached?.daily ?? [],
-          monthly: nextMonthly ?? cached?.monthly ?? [],
+          status: finalStatus,
+          daily: dailyResult.status === 'fulfilled' ? dailyResult.value : cached?.daily ?? [],
+          monthly:
+            monthlyResult.status === 'fulfilled' ? monthlyResult.value : cached?.monthly ?? [],
           savedAt,
         });
         setUpdatedAt(new Date(savedAt));
@@ -279,7 +367,7 @@ export function MeterProvider({ children }: { children: ReactNode }) {
         if (changed) setAccountRef.current(next);
       }
 
-      return results[0].status === 'fulfilled';
+      return statusResult.status === 'fulfilled';
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '读取失败');
       return false;
@@ -295,6 +383,7 @@ export function MeterProvider({ children }: { children: ReactNode }) {
       setDaily([]);
       setMonthly([]);
       setTodayZeroLeiji(null);
+      setTodayZeroApproximate(false);
       return;
     }
     const cached = readCache(activeMeterId);
@@ -304,18 +393,24 @@ export function MeterProvider({ children }: { children: ReactNode }) {
     setMonthly(Array.isArray(cached?.monthly) ? cached.monthly : []);
     setUpdatedAt(cached ? new Date(cached.savedAt) : null);
     // 只有今天抓到的缓存才能反推今天的零点读数，避免把旧数据算进今日
+    const now = new Date();
     const savedToday = cached
-      ? toDateString(new Date(cached.savedAt)) === toDateString(new Date())
+      ? toDateString(new Date(cached.savedAt)) === toDateString(now)
       : false;
-    setTodayZeroLeiji(
-      savedToday && cached
-        ? todayZeroLeijiOf(
-            activeMeterId,
-            Number(cached.status.leiji),
-            findTodayTotal(cached.daily),
-          )
-        : null,
-    );
+    if (savedToday && cached) {
+      const baseline = todayZeroLeijiOf(
+        activeMeterId,
+        Number(cached.status.leiji),
+        findTodayTotal(cached.daily, now),
+        findDayTotal(cached.daily, toDateString(shiftDays(now, -1))),
+        now,
+      );
+      setTodayZeroLeiji(baseline && baseline.usable ? baseline.zeroLeiji : null);
+      setTodayZeroApproximate(baseline && baseline.usable ? baseline.approximate : false);
+    } else {
+      setTodayZeroLeiji(null);
+      setTodayZeroApproximate(false);
+    }
   }, [activeMeterId]);
 
   useEffect(() => {
@@ -340,7 +435,19 @@ export function MeterProvider({ children }: { children: ReactNode }) {
   }, [reload]);
 
   return (
-    <MeterContext.Provider value={{ status, daily, monthly, todayZeroLeiji, loading, error, updatedAt, reload }}>
+    <MeterContext.Provider
+      value={{
+        status,
+        daily,
+        monthly,
+        todayZeroLeiji,
+        todayZeroApproximate,
+        loading,
+        error,
+        updatedAt,
+        reload,
+      }}
+    >
       {children}
     </MeterContext.Provider>
   );
