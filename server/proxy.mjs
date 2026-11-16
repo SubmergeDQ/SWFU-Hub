@@ -25,6 +25,8 @@ function proxyToCampus(req, res) {
     {
       host: ORIGIN_HOST,
       port: 80,
+      // 学校域名同时有 AAAA，IPv6 线路经常不通，代理端固定走 IPv4
+      family: 4,
       path: req.url,
       method: req.method,
       headers: {

@@ -4,3 +4,5 @@ dist/
 .trae-html-share-packages/
 *.log
 .DS_Store
+# CI 解出来的签名证书，不进仓库
+android/keystore/

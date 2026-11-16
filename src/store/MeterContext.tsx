@@ -19,21 +19,24 @@ import { findTodayTotal } from '../lib/estimate';
 import { sameMeters, type Account } from './account';
 import { useAccount } from './AccountContext';
 
-const CACHE_KEY = 'swfu.electricity.meter.v1';
-// v3：日记录改按 starttime 归日，基线算法升级，旧键不再读取
-const BASELINE_KEY = 'swfu.electricity.today-zero.v3';
-// 记录每天最后一次读到的累计值，跨天后用它当作新一天零点
-const LAST_READING_KEY = 'swfu.electricity.last-reading.v1';
+// v2：缓存按 meterId 分表，多个户号切换后不用重新等首屏
+const CACHE_KEY = 'swfu.electricity.meter.v2';
+// v4：零点基线按 meterId 分表存，并记录来源；接口结算值一到就能当天内升级
+const BASELINE_KEY = 'swfu.electricity.today-zero.v4';
+// 记录每块表每天最后一次读到的累计值，跨天后用它当作新一天零点
+const LAST_READING_KEY = 'swfu.electricity.last-reading.v4';
+
+/** api：由接口结算的当日用量反推；history：昨天的最后读数；first：当天首次读数 */
+type BaselineSource = 'api' | 'history' | 'first';
 
 /** 今天零点时的累计读数（度） */
 interface TodayZeroBaseline {
-  meterId: string;
   date: string;
   zeroLeiji: number;
+  source: BaselineSource;
 }
 
 interface LastReading {
-  meterId: string;
   date: string;
   leiji: number;
 }
@@ -60,118 +63,110 @@ interface MeterContextValue {
 
 const MeterContext = createContext<MeterContextValue | null>(null);
 
-function readCache(meterId: string): CachedMeter | null {
+/** 按 meterId 分键存储，避免切换户号时互相覆盖 */
+function readMapEntry<T>(key: string, meterId: string): T | null {
   try {
-    const raw = localStorage.getItem(CACHE_KEY);
+    const raw = localStorage.getItem(key);
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as CachedMeter;
-    if (parsed.meterId !== meterId || !parsed.status || !Array.isArray(parsed.daily)) return null;
-    return parsed;
+    const map = JSON.parse(raw) as Record<string, T> | null;
+    if (!map || typeof map !== 'object') return null;
+    return map[meterId] ?? null;
   } catch {
     return null;
   }
+}
+
+function writeMapEntry<T>(key: string, meterId: string, value: T): void {
+  try {
+    const raw = localStorage.getItem(key);
+    const map: Record<string, T> = raw ? (JSON.parse(raw) as Record<string, T>) : {};
+    map[meterId] = value;
+    localStorage.setItem(key, JSON.stringify(map));
+  } catch {
+    // 本地空间不足或内容损坏时静默跳过，下一次刷新仍会尝试写入
+  }
+}
+
+function readCache(meterId: string): CachedMeter | null {
+  const entry = readMapEntry<CachedMeter>(CACHE_KEY, meterId);
+  if (!entry || !entry.status || !Array.isArray(entry.daily)) return null;
+  return entry;
 }
 
 function writeCache(entry: CachedMeter): void {
-  try {
-    localStorage.setItem(CACHE_KEY, JSON.stringify(entry));
-  } catch {
-    // 本地空间不足时静默跳过，下一次刷新仍会尝试写入
-  }
+  writeMapEntry(CACHE_KEY, entry.meterId, entry);
 }
 
-function readBaseline(meterId: string): TodayZeroBaseline | null {
-  try {
-    const raw = localStorage.getItem(BASELINE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<TodayZeroBaseline>;
-    if (parsed.meterId !== meterId || !parsed.date || !Number.isFinite(parsed.zeroLeiji)) {
-      return null;
-    }
-    return parsed as TodayZeroBaseline;
-  } catch {
-    return null;
-  }
+function persistBaseline(
+  meterId: string,
+  date: string,
+  zeroLeiji: number,
+  source: BaselineSource,
+): number {
+  writeMapEntry<TodayZeroBaseline>(BASELINE_KEY, meterId, { date, zeroLeiji, source });
+  return zeroLeiji;
 }
 
-function writeBaseline(entry: TodayZeroBaseline): void {
-  try {
-    localStorage.setItem(BASELINE_KEY, JSON.stringify(entry));
-  } catch {
-    // 本地空间不足时静默跳过，下次刷新会重新建立基线
-  }
-}
-
-function readLastReading(meterId: string): LastReading | null {
-  try {
-    const raw = localStorage.getItem(LAST_READING_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<LastReading>;
-    if (parsed.meterId !== meterId || !parsed.date || !Number.isFinite(parsed.leiji)) {
-      return null;
-    }
-    return parsed as LastReading;
-  } catch {
-    return null;
-  }
-}
-
-function writeLastReading(entry: LastReading): void {
-  try {
-    localStorage.setItem(LAST_READING_KEY, JSON.stringify(entry));
-  } catch {
-    // 本地空间不足时静默跳过，不影响读数
-  }
+/** 记下当天最后一次读数，跨天后作为新一天的零点 */
+function recordLastReading(meterId: string, leiji: number, now = new Date()): void {
+  if (!Number.isFinite(leiji) || leiji <= 0) return;
+  writeMapEntry<LastReading>(LAST_READING_KEY, meterId, { date: toDateString(now), leiji });
 }
 
 /**
- * 取今天零点的累计读数。
- * 日记录按 starttime 归日，当天的记录要到次日凌晨才结算，
- * 所以优先用「当前累计 − 今日日用量」反推；跨天时退回到昨天最后一次读数。
+ * 取今天零点的累计读数，按可信度从高到低回退：
+ * 1. 接口结算的当日用量反推（最接近真实零点）；
+ * 2. 昨天最后一次读数（跨天时最接近 00:00）；
+ * 3. 当天首次读数（前面都缺失时兜底，会少算打开 App 之前的部分）。
+ * 当天基线只在出现更可信的来源时升级，避免接口还没结算时把零点锁死。
  */
 function todayZeroLeijiOf(
   meterId: string,
   leiji: number,
   todayTotal: number | null,
+  now = new Date(),
 ): number | null {
-  const todayKey = toDateString(new Date());
-  const stored = readBaseline(meterId);
-  if (stored && stored.date === todayKey) return stored.zeroLeiji;
-  if (!Number.isFinite(leiji) || leiji <= 0) return null;
+  const todayKey = toDateString(now);
+  const stored = readMapEntry<TodayZeroBaseline>(BASELINE_KEY, meterId);
+  const saved = stored && stored.date === todayKey ? stored : null;
 
-  let zeroLeiji = leiji;
-  if (todayTotal != null && leiji > todayTotal) {
-    zeroLeiji = leiji - todayTotal;
-  } else {
-    // 接口今天还没有记录，用昨天最后一次读数近似今天零点
-    const yesterdayKey = toDateString(shiftDays(new Date(), -1));
-    const last = readLastReading(meterId);
-    if (last && last.date === yesterdayKey && last.leiji > 0 && last.leiji <= leiji) {
-      zeroLeiji = last.leiji;
-    } else {
-      // 升级当天没有历史读数时，退回今天早些时候缓存的值，尽量少漏算
-      const cached = readCache(meterId);
-      const cachedLeiji = cached ? Number(cached.status.leiji) : NaN;
-      if (
-        cached &&
-        toDateString(new Date(cached.savedAt)) === todayKey &&
-        Number.isFinite(cachedLeiji) &&
-        cachedLeiji > 0 &&
-        cachedLeiji <= leiji
-      ) {
-        zeroLeiji = cachedLeiji;
-      }
-    }
+  const validLeiji = Number.isFinite(leiji) && leiji > 0;
+
+  // total=0 多半是当天还没结算的占位行，拿它反推会把零点锁成当前读数
+  if (validLeiji && todayTotal != null && todayTotal > 0 && leiji > todayTotal) {
+    const apiZero = leiji - todayTotal;
+    // 结算值会随当天累计增长，多次反推时取更小的基线，更接近真实零点
+    if (saved && saved.source === 'api' && saved.zeroLeiji <= apiZero) return saved.zeroLeiji;
+    return persistBaseline(meterId, todayKey, apiZero, 'api');
   }
 
-  writeBaseline({ meterId, date: todayKey, zeroLeiji });
-  return zeroLeiji;
+  // 接口值一旦到手就是当天最可信的结果，不再被历史读数覆盖
+  if (saved && saved.source === 'api') return saved.zeroLeiji;
+  if (saved && saved.source === 'history') return saved.zeroLeiji;
+
+  const yesterdayKey = toDateString(shiftDays(now, -1));
+  const last = readMapEntry<LastReading>(LAST_READING_KEY, meterId);
+  if (
+    last &&
+    last.date === yesterdayKey &&
+    Number.isFinite(last.leiji) &&
+    last.leiji > 0 &&
+    (!validLeiji || last.leiji <= leiji)
+  ) {
+    return persistBaseline(meterId, todayKey, last.leiji, 'history');
+  }
+
+  // 之前记过的当天首次读数比现在更早，保留它
+  if (saved) return saved.zeroLeiji;
+  if (!validLeiji) return null;
+  return persistBaseline(meterId, todayKey, leiji, 'first');
 }
 
 /**
  * 全局共享一份电表数据：
  * 先读本地缓存立刻出画面，再后台刷新；月度账单也一起取回，
  * 进入明细页时不会再因为补数据把下方内容顶动。
+ * 账号同步与电表查询并行，实时电量先落地，历史数据后补。
  */
 export function MeterProvider({ children }: { children: ReactNode }) {
   const { account, setAccount } = useAccount();
@@ -198,11 +193,72 @@ export function MeterProvider({ children }: { children: ReactNode }) {
     if (!current) return false;
     setLoading(true);
     setError(null);
+
     try {
-      // 先同步公众号侧的最新绑定，新增/解绑的户号和昵称头像都会一起更新
-      let effective = current;
-      try {
-        const linked = await fetchLinkedAccount(current.openId);
+      // 账号同步只影响昵称头像和绑定列表，放到后台跑，不挡电表查询
+      const syncTask = fetchLinkedAccount(current.openId).catch(() => null);
+
+      let nextStatus: MeterStatus | null = null;
+      let nextDaily: DailyUsage[] | null = null;
+      let nextMonthly: MonthUsage[] | null = null;
+
+      const applyBaseline = (meterStatus: MeterStatus, meterDaily: DailyUsage[] | null) => {
+        setTodayZeroLeiji(
+          todayZeroLeijiOf(
+            current.meterId,
+            Number(meterStatus.leiji),
+            findTodayTotal(meterDaily ?? []),
+          ),
+        );
+      };
+
+      // 实时电量最先落地，首屏不用等 30 天和 6 个月的历史查询
+      const statusTask = fetchMeterStatus(current).then((value) => {
+        nextStatus = value;
+        setStatus(value);
+        // 先用昨天的最后读数建立零点，再记录今天的读数，否则跨天时会取不到昨天那条
+        applyBaseline(value, nextDaily);
+        recordLastReading(current.meterId, Number(value.leiji));
+        return value;
+      });
+
+      const dailyTask = fetchDailyUsage(current.meterId, 30).then((value) => {
+        nextDaily = value;
+        setDaily(value);
+        // 日记录可能带来接口结算的当天用量，让零点更准
+        if (nextStatus) applyBaseline(nextStatus, value);
+        return value;
+      });
+
+      const monthlyTask = fetchMonthlyUsage(current.meterId, 6).then((value) => {
+        nextMonthly = value;
+        setMonthly(value);
+        return value;
+      });
+
+      const results = await Promise.allSettled([statusTask, dailyTask, monthlyTask]);
+      const failure = results.find((item) => item.status === 'rejected');
+      if (failure && failure.status === 'rejected') {
+        const cause = failure.reason;
+        setError(cause instanceof Error ? cause.message : '读取失败');
+      }
+
+      if (nextStatus) {
+        const cached = readCache(current.meterId);
+        const savedAt = Date.now();
+        writeCache({
+          meterId: current.meterId,
+          status: nextStatus,
+          daily: nextDaily ?? cached?.daily ?? [],
+          monthly: nextMonthly ?? cached?.monthly ?? [],
+          savedAt,
+        });
+        setUpdatedAt(new Date(savedAt));
+      }
+
+      // 同步公众号侧的最新绑定，新增/解绑的户号和昵称头像都会一起更新
+      const linked = await syncTask;
+      if (linked) {
         const active =
           linked.meters.find((meter) => meter.meterId === current.meterId) ?? linked.meters[0];
         const next: Account = {
@@ -220,48 +276,10 @@ export function MeterProvider({ children }: { children: ReactNode }) {
           next.avatar !== current.avatar ||
           !sameMeters(current.meters, linked.meters);
 
-        if (changed) {
-          setAccountRef.current(next);
-          effective = next;
-        }
-      } catch {
-        // 绑定接口偶发失败时保留本地绑定，电表数据继续刷新
+        if (changed) setAccountRef.current(next);
       }
 
-      const [nextStatus, nextDaily, nextMonthly] = await Promise.all([
-        fetchMeterStatus(effective),
-        fetchDailyUsage(effective.meterId, 30),
-        fetchMonthlyUsage(effective.meterId, 6),
-      ]);
-      setStatus(nextStatus);
-      setDaily(nextDaily);
-      setMonthly(nextMonthly);
-      setTodayZeroLeiji(
-        todayZeroLeijiOf(
-          effective.meterId,
-          Number(nextStatus.leiji),
-          findTodayTotal(nextDaily),
-        ),
-      );
-      // 记下当天最后一次读数，跨天后作为新一天的零点
-      const leiji = Number(nextStatus.leiji);
-      if (Number.isFinite(leiji) && leiji > 0) {
-        writeLastReading({
-          meterId: effective.meterId,
-          date: toDateString(new Date()),
-          leiji,
-        });
-      }
-      const savedAt = Date.now();
-      setUpdatedAt(new Date(savedAt));
-      writeCache({
-        meterId: effective.meterId,
-        status: nextStatus,
-        daily: nextDaily,
-        monthly: nextMonthly,
-        savedAt,
-      });
-      return true;
+      return results[0].status === 'fulfilled';
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '读取失败');
       return false;
@@ -280,7 +298,7 @@ export function MeterProvider({ children }: { children: ReactNode }) {
       return;
     }
     const cached = readCache(activeMeterId);
-    // 切换户号时缓存可能不匹配，先清空，避免短暂显示上一间宿舍的数据
+    // 切换户号时读该表自己的缓存，没有缓存才回落到骨架屏
     setStatus(cached?.status ?? null);
     setDaily(cached?.daily ?? []);
     setMonthly(Array.isArray(cached?.monthly) ? cached.monthly : []);

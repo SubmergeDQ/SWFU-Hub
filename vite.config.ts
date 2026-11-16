@@ -1,3 +1,4 @@
+import { Agent } from 'node:http';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
@@ -11,6 +12,8 @@ export default defineConfig({
       '/kddz': {
         target: 'http://sdcz.swfu.edu.cn',
         changeOrigin: true,
+        // 学校域名同时有 AAAA，IPv6 线路经常不通，代理端固定走 IPv4
+        agent: new Agent({ family: 4 }),
       },
     },
   },
